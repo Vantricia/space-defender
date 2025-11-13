@@ -1,0 +1,23 @@
+{
+  "name": "space-defenders",
+  "version": "1.0.0",
+  "description": "Multiplayer browser-based space shooter game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "game",
+    "multiplayer",
+    "canvas",
+    "socket.io"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.0.0",
+    "express-session": "^1.18.0",
+    "socket.io": "^4.7.2"
+  }
+}

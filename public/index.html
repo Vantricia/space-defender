@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Defenders</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1a3e 50%, #0f0c29 100%);
+            color: #ffffff;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Screen management */
+        .screen {
+            display: none;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        /* Front Page Styles */
+        #front-page {
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 4rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 8px;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from {
+                text-shadow: 0 0 10px #00d4ff, 0 0 20px #00d4ff, 0 0 30px #00d4ff, 0 0 40px #00a8ff;
+            }
+            to {
+                text-shadow: 0 0 20px #00ffff, 0 0 30px #00ffff, 0 0 40px #00ffff, 0 0 50px #00d4ff, 0 0 60px #00d4ff;
+            }
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            margin-bottom: 40px;
+            color: #b0c4de;
+        }
+
+        .registration-section {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 30px;
+            border-radius: 15px;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 1.1rem;
+            color: #00d4ff;
+        }
+
+        #player-name {
+            width: 300px;
+            padding: 12px 20px;
+            font-size: 1rem;
+            border: 2px solid #00d4ff;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            color: #ffffff;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        #player-name:focus {
+            border-color: #00ffff;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        #register-btn {
+            background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+            color: #ffffff;
+            margin-top: 10px;
+        }
+
+        #register-btn:hover {
+            background: linear-gradient(135deg, #00ffff 0%, #00d4ff 100%);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+            transform: scale(1.05);
+        }
+
+        .pairing-section {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px 40px;
+            border-radius: 15px;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            margin-bottom: 30px;
+            min-width: 400px;
+        }
+
+        .pairing-section h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #00d4ff;
+        }
+
+        .player-slot {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            margin: 10px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border-left: 4px solid #00d4ff;
+        }
+
+        .player-slot.connected {
+            border-left-color: #00ff88;
+            background: rgba(0, 255, 136, 0.1);
+        }
+
+        .player-label {
+            font-weight: bold;
+            color: #00d4ff;
+        }
+
+        .player-name {
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        .waiting {
+            color: #888;
+            font-style: italic;
+        }
+
+        #start-btn {
+            background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
+            color: #0a0e27;
+            margin-top: 15px;
+        }
+
+        #start-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #00ffaa 0%, #00ff88 100%);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+            transform: scale(1.05);
+        }
+
+        #start-btn:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .instructions {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            max-width: 700px;
+            text-align: left;
+        }
+
+        .instructions h3 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+
+        .instructions ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .instructions li {
+            margin: 8px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .instructions li:before {
+            content: "▸";
+            position: absolute;
+            left: 0;
+            color: #00d4ff;
+        }
+
+        .instructions .control-key {
+            display: inline-block;
+            padding: 2px 8px;
+            background: rgba(0, 212, 255, 0.2);
+            border: 1px solid #00d4ff;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #00ffff;
+            font-family: monospace;
+        }
+
+        /* Game Page Styles */
+        #game-page {
+            position: relative;
+            background: transparent;
+        }
+
+        #game-canvas {
+            border: 3px solid #00d4ff;
+            border-radius: 10px;
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.5);
+            background: #000000;
+        }
+
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 854px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            border: 2px solid rgba(0, 212, 255, 0.4);
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            pointer-events: none;
+        }
+
+        .hud-section {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .hud-section.center {
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hud-label {
+            color: #00d4ff;
+            font-weight: bold;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .hud-value {
+            color: #ffffff;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        #hud-time {
+            font-size: 1.8rem;
+            color: #00ff88;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.8);
+        }
+
+        .health-bar-container {
+            width: 150px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #00d4ff;
+            margin-top: 3px;
+        }
+
+        .health-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88 0%, #00cc66 100%);
+            transition: width 0.3s ease;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.6);
+        }
+
+        .health-bar.low {
+            background: linear-gradient(90deg, #ff3333 0%, #cc0000 100%);
+            box-shadow: 0 0 10px rgba(255, 51, 51, 0.6);
+        }
+
+        /* Game Over Page Styles */
+        #game-over-page {
+            text-align: center;
+        }
+
+        #winner-text {
+            font-size: 3.5rem;
+            margin-bottom: 40px;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        #stats-text {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 30px;
+            border-radius: 15px;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            margin-bottom: 25px;
+            min-width: 600px;
+        }
+
+        .stat-line {
+            font-size: 1.3rem;
+            margin: 15px 0;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+        }
+
+        .stat-label {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+
+        .stat-value {
+            color: #ffffff;
+        }
+
+        #ranking-text {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            margin-bottom: 30px;
+            min-width: 500px;
+        }
+
+        #ranking-text h3 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+
+        .rank-line {
+            font-size: 1.2rem;
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+        }
+
+        .rank-first {
+            border-left: 4px solid #ffd700;
+            background: rgba(255, 215, 0, 0.1);
+        }
+
+        .rank-second {
+            border-left: 4px solid #c0c0c0;
+            background: rgba(192, 192, 192, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        #play-again-btn {
+            background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
+            color: #0a0e27;
+        }
+
+        #play-again-btn:hover {
+            background: linear-gradient(135deg, #00ffaa 0%, #00ff88 100%);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+            transform: scale(1.05);
+        }
+
+        #main-menu-btn {
+            background: linear-gradient(135deg, #888 0%, #666 100%);
+            color: #ffffff;
+        }
+
+        #main-menu-btn:hover {
+            background: linear-gradient(135deg, #aaa 0%, #888 100%);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+    <!-- Front Page Screen -->
+    <div id="front-page" class="screen active">
+        <h1>SPACE DEFENDERS</h1>
+        <p class="subtitle">Multiplayer Game. Survive and win! Or get the highest score in 3 mins!</p>
+        
+        <div class="registration-section">
+            <div class="input-group">
+                <label for="player-name">Enter Your Name</label>
+                <input type="text" id="player-name" placeholder="Your name..." maxlength="20">
+            </div>
+            <button id="register-btn">Register &amp; Sign In</button>
+        </div>
+
+        <div class="pairing-section">
+            <h2>Player Pair Up</h2>
+            <div class="player-slot" id="p1-slot">
+                <span class="player-label">Player 1:</span>
+                <span id="p1-name" class="waiting">[Waiting]</span>
+            </div>
+            <div class="player-slot" id="p2-slot">
+                <span class="player-label">Player 2:</span>
+                <span id="p2-name" class="waiting">[Waiting]</span>
+            </div>
+            <button id="start-btn" disabled>Start Game</button>
+        </div>
+
+        <div class="instructions">
+            <h3>Game Rules &amp; Controls</h3>
+            <ul>
+                <li><strong>Goal:</strong> Be the last player alive or get the higher score in 3 mins</li>
+                <li><strong>Health:</strong> Start with 100 HP. One asteroid hit = –25 health</li>
+                <li><strong>Game Over:</strong> Health = 0 → You're OUT → The other player WINS instantly!</li>
+                <li><strong>Scoring:</strong> Collect gems for +10 points each</li>
+            </ul>
+            <h3 style="margin-top: 20px;">Controls</h3>
+            <ul>
+                <li><strong>Player 1 Move:</strong> <span class="control-key">W</span> <span class="control-key">A</span> <span class="control-key">S</span> <span class="control-key">D</span></li>
+                <li><strong>Player 2 Move:</strong> <span class="control-key">↑</span> <span class="control-key">←</span> <span class="control-key">↓</span> <span class="control-key">→</span></li>
+                <li><strong>Player 1 Shoot:</strong> <span class="control-key">SPACE</span></li>
+                <li><strong>Player 2 Shoot:</strong> <span class="control-key">ENTER</span></li>
+                <li><strong>Cheat Mode:</strong> <span class="control-key">Ctrl</span> → Become Invincible!</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Game Page Screen -->
+    <div id="game-page" class="screen">
+        <canvas id="game-canvas" width="854" height="480"></canvas>
+        
+        <div id="hud">
+            <div class="hud-section">
+                <div class="hud-label">Player 1</div>
+                <div class="hud-value">Health: <span id="hud-p1-health">100</span></div>
+                <div class="health-bar-container">
+                    <div id="hud-p1-health-bar" class="health-bar" style="width: 100%;"></div>
+                </div>
+                <div class="hud-value">Gems: <span id="hud-p1-gems">0</span></div>
+                <div class="hud-value">Score: <span id="hud-p1-score">0</span></div>
+            </div>
+
+            <div class="hud-section center">
+                <div class="hud-label">Time Remaining</div>
+                <div id="hud-time">3:00</div>
+            </div>
+
+            <div class="hud-section">
+                <div class="hud-label">Player 2</div>
+                <div class="hud-value">Health: <span id="hud-p2-health">100</span></div>
+                <div class="health-bar-container">
+                    <div id="hud-p2-health-bar" class="health-bar" style="width: 100%;"></div>
+                </div>
+                <div class="hud-value">Gems: <span id="hud-p2-gems">0</span></div>
+                <div class="hud-value">Score: <span id="hud-p2-score">0</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Page Screen -->
+    <div id="game-over-page" class="screen">
+        <h1 id="winner-text">PLAYER 1 WINS!</h1>
+        
+        <div id="stats-text">
+            <h3 style="color: #00d4ff; margin-bottom: 20px;">Player Statistics</h3>
+            <!-- Stats will be populated by JavaScript -->
+        </div>
+
+        <div id="ranking-text">
+            <h3>Player Ranking</h3>
+            <!-- Rankings will be populated by JavaScript -->
+        </div>
+
+        <div class="button-group">
+            <button id="play-again-btn">Play Again</button>
+            <button id="main-menu-btn">Main Menu</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
