@@ -1,19 +1,46 @@
 const express = require("express");
 const http = require("http");
-const session = require("express-session");
 const { Server } = require("socket.io");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Session middleware
-app.use(session({
-    secret: "space-defenders-secret-key",
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: false }
-}));
+// Database file path
+const DB_FILE = path.join(__dirname, "users.json");
+
+// Load or initialize user database
+let userDatabase = { users: [] };
+
+function loadDatabase() {
+    try {
+        if (fs.existsSync(DB_FILE)) {
+            const data = fs.readFileSync(DB_FILE, "utf8");
+            userDatabase = JSON.parse(data);
+            console.log(`[DB] Loaded ${userDatabase.users.length} users from database`);
+        } else {
+            console.log("[DB] No database file found, creating new one");
+            saveDatabase();
+        }
+    } catch (error) {
+        console.error("[DB] Error loading database:", error);
+        userDatabase = { users: [] };
+    }
+}
+
+function saveDatabase() {
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(userDatabase, null, 2), "utf8");
+        console.log("[DB] Database saved successfully");
+    } catch (error) {
+        console.error("[DB] Error saving database:", error);
+    }
+}
+
+// Initialize database on startup
+loadDatabase();
 
 // Serve static files from public directory
 app.use(express.static("public"));
@@ -28,13 +55,92 @@ const lobby = {
 io.on("connection", (socket) => {
     console.log(`[INFO] New connection: ${socket.id}`);
 
-    // Handle player registration
+    // Handle user registration (create new account)
+    socket.on("createAccount", (data) => {
+        const { username, password } = data;
+
+        // Validate input
+        if (!username || username.trim() === "") {
+            socket.emit("createAccountError", { message: "Username cannot be empty" });
+            return;
+        }
+
+        if (!password || password.length < 4) {
+            socket.emit("createAccountError", { message: "Password must be at least 4 characters" });
+            return;
+        }
+
+        // Check if username already exists
+        const existingUser = userDatabase.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
+        if (existingUser) {
+            socket.emit("createAccountError", { message: "Username already taken" });
+            return;
+        }
+
+        // Create new user
+        const newUser = {
+            username: username.trim(),
+            password: password, // In production, use bcrypt to hash passwords
+            createdAt: new Date().toISOString(),
+            gamesPlayed: 0,
+            wins: 0,
+            totalScore: 0
+        };
+
+        userDatabase.users.push(newUser);
+        saveDatabase();
+
+        console.log(`[DB] New user created: ${newUser.username}`);
+        socket.emit("createAccountSuccess", { username: newUser.username });
+    });
+
+    // Handle user login
+    socket.on("login", (data) => {
+        const { username, password } = data;
+
+        // Validate input
+        if (!username || !password) {
+            socket.emit("loginError", { message: "Username and password required" });
+            return;
+        }
+
+        // Find user in database
+        const user = userDatabase.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
+        
+        if (!user) {
+            socket.emit("loginError", { message: "User not found" });
+            return;
+        }
+
+        if (user.password !== password) {
+            socket.emit("loginError", { message: "Incorrect password" });
+            return;
+        }
+
+        console.log(`[DB] User logged in: ${user.username}`);
+        socket.emit("loginSuccess", { 
+            username: user.username,
+            stats: {
+                gamesPlayed: user.gamesPlayed,
+                wins: user.wins,
+                totalScore: user.totalScore
+            }
+        });
+    });
+
+    // Handle player registration (join lobby with character)
     socket.on("register", (data) => {
-        const { name } = data;
+        const { name, character } = data;
 
         // Validate name
         if (!name || name.trim() === "") {
             socket.emit("registerError", { message: "Name cannot be empty" });
+            return;
+        }
+
+        // Validate character
+        if (character === undefined || character === null || character < 0 || character > 5) {
+            socket.emit("registerError", { message: "Please select a character" });
             return;
         }
 
@@ -49,6 +155,13 @@ io.on("connection", (socket) => {
             return;
         }
 
+        // Check if character is already taken
+        const characterTaken = lobby.players.some(p => p.character === character);
+        if (characterTaken) {
+            socket.emit("registerError", { message: "Character already taken" });
+            return;
+        }
+
         // Assign slot based on current lobby size
         const slot = lobby.players.length === 0 ? "P1" : "P2";
 
@@ -56,17 +169,18 @@ io.on("connection", (socket) => {
         const player = {
             id: socket.id,
             name: name.trim(),
-            slot: slot
+            slot: slot,
+            character: character
         };
         lobby.players.push(player);
 
-        console.log(`[REGISTER] ${name} joined as ${slot}`);
+        console.log(`[REGISTER] ${name} joined as ${slot} with character ${character}`);
 
         // Emit registration success to this socket
-        socket.emit("registerSuccess", { slot, name: player.name });
+        socket.emit("registerSuccess", { slot, name: player.name, character });
 
         // Broadcast lobby update to all clients
-        const lobbyData = lobby.players.map(p => ({ slot: p.slot, name: p.name }));
+        const lobbyData = lobby.players.map(p => ({ slot: p.slot, name: p.name, character: p.character }));
         io.emit("lobbyUpdate", lobbyData);
     });
 
@@ -100,7 +214,8 @@ io.on("connection", (socket) => {
             players: lobby.players.map(p => ({
                 slot: p.slot,
                 name: p.name,
-                id: p.id
+                id: p.id,
+                character: p.character
             }))
         };
 
@@ -123,6 +238,26 @@ io.on("connection", (socket) => {
     // Handle game over
     socket.on("gameOver", (data) => {
         console.log("[GAME] Game over:", data);
+
+        // Update user statistics
+        const winnerSlot = data.winner;
+        lobby.players.forEach(player => {
+            const user = userDatabase.users.find(u => u.username.toLowerCase() === player.name.toLowerCase());
+            if (user) {
+                user.gamesPlayed = (user.gamesPlayed || 0) + 1;
+                
+                const playerData = data.players[player.slot];
+                if (playerData) {
+                    user.totalScore = (user.totalScore || 0) + playerData.score;
+                    
+                    if (player.slot === winnerSlot) {
+                        user.wins = (user.wins || 0) + 1;
+                    }
+                }
+            }
+        });
+        
+        saveDatabase();
 
         // Broadcast game over to all clients
         io.emit("gameOver", data);
@@ -163,7 +298,7 @@ io.on("connection", (socket) => {
             console.log("[LOBBY] Lobby reset due to disconnect during game");
         } else {
             // Game hasn't started yet - just update lobby
-            const lobbyData = lobby.players.map(p => ({ slot: p.slot, name: p.name }));
+            const lobbyData = lobby.players.map(p => ({ slot: p.slot, name: p.name, character: p.character }));
             io.emit("lobbyUpdate", lobbyData);
             console.log("[LOBBY] Updated after disconnect");
         }
@@ -171,7 +306,7 @@ io.on("connection", (socket) => {
 });
 
 // Start server
-const PORT = 3000;
+const PORT = 8000;
 server.listen(PORT, () => {
     console.log(`[SERVER] Space Defenders server running at http://localhost:${PORT}`);
 });

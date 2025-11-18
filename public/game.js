@@ -4,16 +4,21 @@ let gameState = null;
 let lastTime = 0;
 let cheatMode = { P1: false, P2: false };
 
+// Load bullet image
+const bulletImage = new Image();
+bulletImage.src = 'effects/bullet.png';
+
 // Factory Functions
 
 // Create a player object
-function createPlayer(slot, name) {
+function createPlayer(slot, name, character) {
     const x = slot === "P1" ? 200 : 650;
     const y = 240;
     
     return {
         name: name,
         slot: slot,
+        character: character,
         x: x,
         y: y,
         vx: 0,
@@ -24,28 +29,6 @@ function createPlayer(slot, name) {
         gems: 0,
         score: 0,
         alive: true
-    };
-}
-
-// Create an asteroid object
-function createAsteroid() {
-    return {
-        x: Math.random() * canvas.width,
-        y: -30, // Start above the canvas
-        vx: (Math.random() - 0.5) * 100, // Random horizontal drift
-        vy: 50 + Math.random() * 100, // Downward velocity
-        radius: 20
-    };
-}
-
-// Create a gem object
-function createGem() {
-    const padding = 40;
-    return {
-        x: padding + Math.random() * (canvas.width - padding * 2),
-        y: padding + Math.random() * (canvas.height - padding * 2),
-        radius: 15,
-        angle: 0
     };
 }
 
@@ -76,21 +59,40 @@ function initGame(serverData, mySlot) {
         mySlot: mySlot,
         timeRemaining: serverData.duration, // 180 seconds
         players: {
-            P1: createPlayer("P1", p1Data.name),
-            P2: createPlayer("P2", p2Data.name)
+            P1: createPlayer("P1", p1Data.name, p1Data.character),
+            P2: createPlayer("P2", p2Data.name, p2Data.character)
         },
         asteroids: [],
         gems: [],
         bullets: [],
         lastSpawnAsteroid: 0,
         lastSpawnGem: 0,
-        running: true,
+        running: false, // Don't start until instructions are gone
         pressed: {},
         gameStartTime: serverData.duration
     };
     
+    // Expose gameState to window for client.js access
+    window.gameState = gameState;
+    
     // Set up keyboard controls
     setupControls();
+    
+    // Listen for player input from other player
+    window.gameSocket.on("playerInput", (data) => {
+        if (gameState && data.slot !== gameState.mySlot) {
+            const player = gameState.players[data.slot];
+            if (player) {
+                player.x = data.x;
+                player.y = data.y;
+            }
+        }
+    });
+    
+    // Listen for state updates from P1 (if we're P2)
+    if (mySlot === "P2") {
+        window.gameSocket.on("stateUpdate", receiveGameState);
+    }
     
     // Start game loop
     lastTime = performance.now();
@@ -128,7 +130,7 @@ function setupControls() {
 
 // Main game loop
 function gameLoop(timestamp) {
-    if (!gameState || !gameState.running) {
+    if (!gameState) {
         return;
     }
     
@@ -136,35 +138,57 @@ function gameLoop(timestamp) {
     const dt = (timestamp - lastTime) / 1000;
     lastTime = timestamp;
     
-    // Update and draw
-    update(dt);
-    draw();
+    // Only update and draw if game is running
+    if (gameState.running) {
+        update(dt);
+        draw();
+    } else {
+        // Still draw the initial state even when paused
+        draw();
+    }
     
-    // Continue loop
+    // Continue loop regardless of running state
     requestAnimationFrame(gameLoop);
 }
 
 // Update game state
 function update(dt) {
-    // Decrease time remaining
-    gameState.timeRemaining -= dt;
-    if (gameState.timeRemaining < 0) {
-        gameState.timeRemaining = 0;
+    // Only update game if running (after instructions disappear)
+    if (gameState.running) {
+        // Decrease time remaining
+        gameState.timeRemaining -= dt;
+        if (gameState.timeRemaining < 0) {
+            gameState.timeRemaining = 0;
+        }
+        
+        // Check if time ran out
+        if (gameState.timeRemaining === 0 && gameState.players.P1.alive && gameState.players.P2.alive) {
+            endGameByTime();
+            return;
+        }
     }
     
-    // Check if time ran out
-    if (gameState.timeRemaining === 0 && gameState.players.P1.alive && gameState.players.P2.alive) {
-        endGameByTime();
-        return;
+    // Only P1 updates game elements (authoritative)
+    if (gameState.mySlot === "P1") {
+        updatePlayers(dt);
+        
+        // Only spawn entities if game is running
+        if (gameState.running) {
+            spawnAsteroids(dt);
+            spawnGems(dt);
+            updateGems(dt);
+            updateAsteroids(dt);
+            updateBullets(dt);
+            checkCollisions();
+        }
+        
+        // Broadcast game state to P2
+        broadcastGameState();
+    } else {
+        // P2 only updates local player input
+        updatePlayers(dt);
     }
     
-    // Update game elements
-    updatePlayers(dt);
-    spawnAsteroids(dt);
-    spawnGems(dt);
-    updateAsteroids(dt);
-    updateBullets(dt);
-    checkCollisions();
     updateHUD();
 }
 
@@ -180,7 +204,7 @@ function updatePlayers(dt) {
         player.vy = 0;
         
         // Player 1 controls (WASD)
-        if (player.slot === "P1") {
+        if (player.slot === "P1" && gameState.mySlot === "P1") {
             if (gameState.pressed["KeyW"]) player.vy = -speed;
             if (gameState.pressed["KeyS"]) player.vy = speed;
             if (gameState.pressed["KeyA"]) player.vx = -speed;
@@ -188,20 +212,37 @@ function updatePlayers(dt) {
         }
         
         // Player 2 controls (Arrow keys)
-        if (player.slot === "P2") {
+        if (player.slot === "P2" && gameState.mySlot === "P2") {
             if (gameState.pressed["ArrowUp"]) player.vy = -speed;
             if (gameState.pressed["ArrowDown"]) player.vy = speed;
             if (gameState.pressed["ArrowLeft"]) player.vx = -speed;
             if (gameState.pressed["ArrowRight"]) player.vx = speed;
+            
+            // Debug logging
+            if (player.vx !== 0 || player.vy !== 0) {
+                console.log('P2 moving:', player.vx, player.vy, 'at', player.x, player.y);
+            }
         }
         
-        // Update position
-        player.x += player.vx * dt;
-        player.y += player.vy * dt;
-        
-        // Clamp to canvas bounds
-        player.x = Math.max(player.width / 2, Math.min(canvas.width - player.width / 2, player.x));
-        player.y = Math.max(player.height / 2, Math.min(canvas.height - player.height / 2, player.y));
+        // Only update position if this is our player
+        if (player.slot === gameState.mySlot) {
+            // Update position
+            player.x += player.vx * dt;
+            player.y += player.vy * dt;
+            
+            // Clamp to canvas bounds
+            player.x = Math.max(player.width / 2, Math.min(canvas.width - player.width / 2, player.x));
+            player.y = Math.max(player.height / 2, Math.min(canvas.height - player.height / 2, player.y));
+            
+            // Send position to other player
+            if (window.gameSocket) {
+                window.gameSocket.emit("playerInput", {
+                    slot: player.slot,
+                    x: player.x,
+                    y: player.y
+                });
+            }
+        }
     });
 }
 
@@ -212,7 +253,7 @@ function spawnAsteroids(dt) {
     // Spawn every 1.5 seconds if under max count
     if (gameState.lastSpawnAsteroid >= 1.5 && gameState.asteroids.length < 6) {
         gameState.lastSpawnAsteroid = 0;
-        gameState.asteroids.push(createAsteroid());
+        gameState.asteroids.push(Asteroid(ctx, canvas.width));
     }
 }
 
@@ -223,27 +264,30 @@ function spawnGems(dt) {
     // Spawn every 4 seconds if under max count
     if (gameState.lastSpawnGem >= 4 && gameState.gems.length < 3) {
         gameState.lastSpawnGem = 0;
-        gameState.gems.push(createGem());
+        const gem = Gem(ctx, 0, 0);
+        gem.randomize(canvas.width, canvas.height);
+        gameState.gems.push(gem);
     }
+}
+
+// Update gems (rotation animation)
+function updateGems(dt) {
+    gameState.gems.forEach(gem => {
+        gem.update(dt);
+    });
 }
 
 // Update asteroid positions
 function updateAsteroids(dt) {
-    for (let i = gameState.asteroids.length - 1; i >= 0; i--) {
-        const asteroid = gameState.asteroids[i];
-        
-        asteroid.x += asteroid.vx * dt;
-        asteroid.y += asteroid.vy * dt;
-        
-        // Remove asteroids that go off the bottom of the screen
-        if (asteroid.y > canvas.height + asteroid.radius) {
-            gameState.asteroids.splice(i, 1);
-        }
-        
-        // Wrap horizontally
-        if (asteroid.x < -asteroid.radius) asteroid.x = canvas.width + asteroid.radius;
-        if (asteroid.x > canvas.width + asteroid.radius) asteroid.x = -asteroid.radius;
-    }
+    // Update each asteroid
+    gameState.asteroids.forEach(asteroid => {
+        asteroid.update(dt, canvas.width);
+    });
+    
+    // Remove off-screen asteroids
+    gameState.asteroids = gameState.asteroids.filter(asteroid => 
+        !asteroid.isOffScreen(canvas.height)
+    );
 }
 
 // Update bullet positions
@@ -292,13 +336,14 @@ function checkCollisions() {
     // Player <-> Gem collisions
     for (let i = gameState.gems.length - 1; i >= 0; i--) {
         const gem = gameState.gems[i];
+        const { x: gemX, y: gemY } = gem.getXY();
         let collected = false;
         
         Object.values(gameState.players).forEach(player => {
             if (!player.alive || collected) return;
             
             // Check if gem center is inside player bounding box
-            if (pointInRect(gem.x, gem.y, player.x, player.y, player.width, player.height)) {
+            if (pointInRect(gemX, gemY, player.x, player.y, player.width, player.height)) {
                 // Collect gem
                 player.gems += 1;
                 player.score += 10;
@@ -315,8 +360,9 @@ function checkCollisions() {
         
         for (let j = gameState.asteroids.length - 1; j >= 0; j--) {
             const asteroid = gameState.asteroids[j];
+            const bounds = asteroid.getBounds();
             
-            if (circlesOverlap(bullet.x, bullet.y, bullet.radius, asteroid.x, asteroid.y, asteroid.radius)) {
+            if (circlesOverlap(bullet.x, bullet.y, bullet.radius, bounds.centerX, bounds.centerY, bounds.radius)) {
                 // Destroy asteroid and bullet
                 gameState.asteroids.splice(j, 1);
                 gameState.bullets.splice(i, 1);
@@ -338,16 +384,16 @@ function checkCollisions() {
     // Asteroid <-> Player collisions
     for (let i = gameState.asteroids.length - 1; i >= 0; i--) {
         const asteroid = gameState.asteroids[i];
+        const bounds = asteroid.getBounds();
         let asteroidHit = false;
         
         Object.values(gameState.players).forEach(player => {
             if (!player.alive || asteroidHit) return;
             
-            // Check circle-to-rectangle collision
-            // Use player center and treat as circle for simplicity
+            // Check circle-to-circle collision
             const playerRadius = Math.max(player.width, player.height) / 2;
             
-            if (circlesOverlap(asteroid.x, asteroid.y, asteroid.radius, player.x, player.y, playerRadius)) {
+            if (circlesOverlap(bounds.centerX, bounds.centerY, bounds.radius, player.x, player.y, playerRadius)) {
                 // Collision detected
                 if (!cheatMode[player.slot]) {
                     player.health -= 25;
@@ -369,65 +415,41 @@ function checkCollisions() {
 
 // Draw everything
 function draw() {
-    // Clear canvas
+    // Clear canvas (background image is set via CSS)
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw space background
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw stars (simple dots)
-    ctx.fillStyle = "#ffffff";
-    for (let i = 0; i < 50; i++) {
-        const x = (i * 137) % canvas.width;
-        const y = (i * 211) % canvas.height;
-        ctx.fillRect(x, y, 2, 2);
-    }
     
     // Draw gems
     gameState.gems.forEach(gem => {
-        gem.angle += 0.05;
-        
-        ctx.save();
-        ctx.translate(gem.x, gem.y);
-        ctx.rotate(gem.angle);
-        
-        // Draw diamond shape
-        ctx.fillStyle = "#00ffff";
-        ctx.beginPath();
-        ctx.moveTo(0, -gem.radius);
-        ctx.lineTo(gem.radius, 0);
-        ctx.lineTo(0, gem.radius);
-        ctx.lineTo(-gem.radius, 0);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Glow effect
-        ctx.strokeStyle = "#00ffff";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        ctx.restore();
+        gem.draw();
     });
     
     // Draw asteroids
     gameState.asteroids.forEach(asteroid => {
-        ctx.fillStyle = "#8B4513";
-        ctx.beginPath();
-        ctx.arc(asteroid.x, asteroid.y, asteroid.radius, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.strokeStyle = "#654321";
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        asteroid.draw();
     });
     
     // Draw bullets
     gameState.bullets.forEach(bullet => {
-        ctx.fillStyle = "#ffff00";
-        ctx.beginPath();
-        ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
-        ctx.fill();
+        if (bulletImage.complete && bulletImage.naturalWidth > 0) {
+            // Draw bullet sprite
+            const size = bullet.radius * 3; // Make it a bit bigger to see the image
+            ctx.save();
+            ctx.translate(bullet.x, bullet.y);
+            ctx.drawImage(
+                bulletImage,
+                -size / 2,
+                -size / 2,
+                size,
+                size
+            );
+            ctx.restore();
+        } else {
+            // Fallback: draw yellow circle
+            ctx.fillStyle = "#ffff00";
+            ctx.beginPath();
+            ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
     });
     
     // Draw players
@@ -449,19 +471,24 @@ function draw() {
             ctx.stroke();
         }
         
-        // Draw spaceship (triangle pointing up)
-        const color = player.slot === "P1" ? "#00ff00" : "#ff00ff";
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(player.x, player.y - player.height / 2);
-        ctx.lineTo(player.x - player.width / 2, player.y + player.height / 2);
-        ctx.lineTo(player.x + player.width / 2, player.y + player.height / 2);
-        ctx.closePath();
-        ctx.fill();
-        
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        // Draw spaceship sprite
+        if (typeof drawCharacterSprite === 'function') {
+            drawCharacterSprite(ctx, player.character, player.x - player.width / 2, player.y - player.height / 2, player.width);
+        } else {
+            // Fallback: draw triangle if character sprite not loaded
+            const color = player.slot === "P1" ? "#00ff00" : "#ff00ff";
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y - player.height / 2);
+            ctx.lineTo(player.x - player.width / 2, player.y + player.height / 2);
+            ctx.lineTo(player.x + player.width / 2, player.y + player.height / 2);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
         
         // Draw player name
         ctx.fillStyle = "#ffffff";
@@ -605,6 +632,86 @@ function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+// Broadcast game state from P1 to P2
+function broadcastGameState() {
+    if (!window.gameSocket || gameState.mySlot !== "P1") return;
+    
+    // Serialize game state for network transfer
+    const state = {
+        timeRemaining: gameState.timeRemaining,
+        players: {
+            P1: {
+                x: gameState.players.P1.x,
+                y: gameState.players.P1.y,
+                health: gameState.players.P1.health,
+                gems: gameState.players.P1.gems,
+                score: gameState.players.P1.score,
+                alive: gameState.players.P1.alive
+            },
+            P2: {
+                x: gameState.players.P2.x,
+                y: gameState.players.P2.y,
+                health: gameState.players.P2.health,
+                gems: gameState.players.P2.gems,
+                score: gameState.players.P2.score,
+                alive: gameState.players.P2.alive
+            }
+        },
+        asteroids: gameState.asteroids.map(a => a.serialize()),
+        gems: gameState.gems.map(g => {
+            const pos = g.getXY();
+            return { x: pos.x, y: pos.y, rotation: g.rotation };
+        }),
+        bullets: gameState.bullets.map(b => ({
+            x: b.x,
+            y: b.y,
+            ownerSlot: b.ownerSlot
+        }))
+    };
+    
+    window.gameSocket.emit("stateUpdate", state);
+}
+
+// Receive game state from P1 (P2 only)
+function receiveGameState(state) {
+    if (!gameState || gameState.mySlot !== "P2") return;
+    
+    // Update time
+    gameState.timeRemaining = state.timeRemaining;
+    
+    // Update P1 position and stats
+    gameState.players.P1.x = state.players.P1.x;
+    gameState.players.P1.y = state.players.P1.y;
+    gameState.players.P1.health = state.players.P1.health;
+    gameState.players.P1.gems = state.players.P1.gems;
+    gameState.players.P1.score = state.players.P1.score;
+    gameState.players.P1.alive = state.players.P1.alive;
+    
+    // Update P2 stats only (NOT position - we control that locally)
+    gameState.players.P2.health = state.players.P2.health;
+    gameState.players.P2.gems = state.players.P2.gems;
+    gameState.players.P2.score = state.players.P2.score;
+    gameState.players.P2.alive = state.players.P2.alive;
+    
+    // Update asteroids
+    gameState.asteroids = state.asteroids.map(a => {
+        const asteroid = Asteroid(ctx, canvas.width);
+        asteroid.deserialize(a);
+        return asteroid;
+    });
+    
+    // Update gems
+    gameState.gems = state.gems.map(g => {
+        const gem = Gem(ctx, g.x, g.y);
+        gem.rotation = g.rotation;
+        gem.angle = g.rotation;
+        return gem;
+    });
+    
+    // Update bullets
+    gameState.bullets = state.bullets.map(b => createBullet(b.ownerSlot, b.x, b.y));
 }
 
 // Show game over screen
