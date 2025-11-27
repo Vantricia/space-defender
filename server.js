@@ -229,6 +229,12 @@ io.on("connection", (socket) => {
         socket.broadcast.emit("playerInput", data);
     });
 
+    // Handle real-time shooting
+    socket.on("shoot", (data) => {
+        // Broadcast to all other clients
+        socket.broadcast.emit("shoot", data);
+    });
+
     // Handle game state updates
     socket.on("stateUpdate", (data) => {
         // Broadcast to all other clients

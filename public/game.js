@@ -28,7 +28,8 @@ function createPlayer(slot, name, character) {
         health: 100,
         gems: 0,
         score: 0,
-        alive: true
+        alive: true,
+        lastShootTime: 0
     };
 }
 
@@ -97,6 +98,18 @@ function initGame(serverData, mySlot) {
     // Start game loop
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
+
+        window.gameSocket.on("shoot", (data) => {
+        if (!gameState || !gameState.running || gameState.mySlot !== "P1") return;
+        const player = gameState.players[data.ownerSlot];
+        if (!player || !player.alive) return;
+        const now = performance.now();
+        if (now - player.lastShootTime < 200) return;
+        player.lastShootTime = now;
+        const bullet = createBullet(data.ownerSlot, data.x, data.y);
+        gameState.bullets.push(bullet);
+    });
+    
 }
 
 // Set up keyboard event listeners
@@ -292,7 +305,7 @@ function updateAsteroids(dt) {
 
 // Update bullet positions
 function updateBullets(dt) {
-    const bulletSpeed = 300;
+    //const bulletSpeed = 300;
     
     for (let i = gameState.bullets.length - 1; i >= 0; i--) {
         const bullet = gameState.bullets[i];
@@ -313,8 +326,20 @@ function shoot(slot) {
     const player = gameState.players[slot];
     if (!player.alive) return;
     
+    const now = performance.now();
+    if (now - player.lastShootTime < 200) return;
+    player.lastShootTime = now;
+
     const bullet = createBullet(slot, player.x, player.y - player.height / 2);
     gameState.bullets.push(bullet);
+
+    if (window.gameSocket) {
+        window.gameSocket.emit("shoot", {
+            ownerSlot: slot,
+            x: bullet.x,
+            y: bullet.y
+        });
+    }
 }
 
 // Helper: Check if two circles overlap (for collision detection)
@@ -506,6 +531,7 @@ function updateHUD() {
     document.getElementById("hud-time").textContent = `${minutes}:${seconds.toString().padStart(2, "0")}`;
     
     // Player 1
+    document.getElementById("hud-p1-label").textContent = 'Player 1 : ' + gameState.players.P1.name;
     document.getElementById("hud-p1-health").textContent = gameState.players.P1.health;
     document.getElementById("hud-p1-gems").textContent = gameState.players.P1.gems;
     document.getElementById("hud-p1-score").textContent = gameState.players.P1.score;
@@ -519,6 +545,7 @@ function updateHUD() {
     }
     
     // Player 2
+    document.getElementById("hud-p2-label").textContent = 'Player 2 : ' + gameState.players.P2.name;
     document.getElementById("hud-p2-health").textContent = gameState.players.P2.health;
     document.getElementById("hud-p2-gems").textContent = gameState.players.P2.gems;
     document.getElementById("hud-p2-score").textContent = gameState.players.P2.score;
