@@ -3,6 +3,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
+const bcrypt = require("bcrypt");
 
 const app = express();
 const server = http.createServer(app);
@@ -77,10 +78,12 @@ io.on("connection", (socket) => {
             return;
         }
 
+        const passwordHash = bcrypt.hashSync(password, 10);
+
         // Create new user
         const newUser = {
             username: username.trim(),
-            password: password, // In production, use bcrypt to hash passwords
+            password: passwordHash, // In production, use bcrypt to hash passwords
             createdAt: new Date().toISOString(),
             gamesPlayed: 0,
             wins: 0,
@@ -106,13 +109,12 @@ io.on("connection", (socket) => {
 
         // Find user in database
         const user = userDatabase.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
-        
         if (!user) {
             socket.emit("loginError", { message: "User not found" });
             return;
         }
 
-        if (user.password !== password) {
+        if (!bcrypt.compareSync(password, user.password)) {
             socket.emit("loginError", { message: "Incorrect password" });
             return;
         }
