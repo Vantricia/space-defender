@@ -306,6 +306,16 @@ io.on("connection", (socket) => {
         socket.broadcast.emit("stateUpdate", data);
     });
 
+    // Handle gem collected
+    socket.on("gemCollected", (data) => {
+        socket.broadcast.emit("gemCollected", data);
+    });
+
+    // Handle asteroid crash
+    socket.on("asteroidCrash", (data) => {
+        socket.broadcast.emit("asteroidCrash", data);
+    });
+
     // Handle game over
     socket.on("gameOver", (data) => {
         console.log("[GAME] Game over:", data);

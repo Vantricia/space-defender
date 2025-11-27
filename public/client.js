@@ -124,7 +124,7 @@ logoutBtn.addEventListener('click', () => {
 confirmLogoutBtn.addEventListener('click', () => {
     // Tell server to clear session
     socket.emit("logout");
-    
+
     // Logout logic
     isLoggedIn = false;
     loggedInUsername = null;
@@ -455,6 +455,11 @@ function showGameInstructions(slot) {
 // Listen for game over
 socket.on("gameOver", (summary) => {
     console.log("Game over:", summary);
+
+    // Stop background music (in case it's still playing)
+    if (typeof stopBackgroundMusic === 'function') {
+        stopBackgroundMusic();
+    }
     
     // Show game over screen (defined in game.js)
     if (typeof showGameOverScreen === "function") {
@@ -467,6 +472,10 @@ socket.on("gameOver", (summary) => {
 
 // Listen for opponent disconnected during game
 socket.on("opponentDisconnected", (data) => {
+    if (typeof stopBackgroundMusic === 'function') {
+        stopBackgroundMusic();
+    }
+
     alert(data.message);
     
     // Reset to front page
