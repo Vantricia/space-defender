@@ -8,7 +8,7 @@ let cheatMode = { P1: false, P2: false };
 const bulletImage = new Image();
 bulletImage.src = 'effects/bullet.png';
 const bulletSound = new Audio('effects/bullet.mp3');
-bulletSound.volume = 0.2;
+bulletSound.volume = 0.3;
 
 // Adding sound effects
 function playBulletSound() {
@@ -146,6 +146,15 @@ function initGame(serverData, mySlot) {
         gameState.bullets.push(bullet);
     });
 
+    // Listen for cheat mode (for P2)
+    window.gameSocket.on("cheatModeToggle", (data) => {
+        // Only P1 needs to know for collision checking
+        if (gameState.mySlot === "P1") {
+            cheatMode[data.slot] = data.enabled;
+            console.log(`[CHEAT] ${data.slot} cheat mode: ${data.enabled} (for collision only)`);
+        }
+    });
+
     // Listen for gem collected event (for sound on P2)
     window.gameSocket.on("gemCollected", (data) => {
         // Play sound for the player who collected it
@@ -174,6 +183,14 @@ function setupControls() {
         if (e.key === "Control") {
             cheatMode[gameState.mySlot] = !cheatMode[gameState.mySlot];
             console.log(`Cheat mode for ${gameState.mySlot}:`, cheatMode[gameState.mySlot]);
+
+            // Notify other player of cheat mode change
+            if (window.gameSocket) {
+                window.gameSocket.emit("cheatModeToggle", {
+                    slot: gameState.mySlot,
+                    enabled: cheatMode[gameState.mySlot]
+                });
+            }
         }
         
         // Shooting controls
@@ -560,8 +577,8 @@ function draw() {
     Object.values(gameState.players).forEach(player => {
         if (!player.alive) return;
         
-        // Draw cheat mode shield if active
-        if (cheatMode[player.slot]) {
+        // Draw cheat mode shield if active only for own player
+        if (cheatMode[player.slot] && player.slot === gameState.mySlot) {
             ctx.strokeStyle = "#0088ff";
             ctx.lineWidth = 4;
             ctx.beginPath();

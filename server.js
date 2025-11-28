@@ -288,6 +288,12 @@ io.on("connection", (socket) => {
         io.emit("gameStart", gameData);
     });
 
+    // Handle cheat mode toggle
+    socket.on("cheatModeToggle", (data) => {
+        console.log(`[CHEAT] ${data.slot} cheat mode: ${data.enabled}`);
+        socket.broadcast.emit("cheatModeToggle", data);
+    });
+
     // Handle real-time player input synchronization
     socket.on("playerInput", (data) => {
         // Broadcast to all other clients
