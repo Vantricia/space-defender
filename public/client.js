@@ -1,5 +1,5 @@
 // Connect to socket.io server
-const socket = io();
+const socket = io( { withCredentials: true } );
 
 // Track local player info
 let mySlot = null;
@@ -76,6 +76,30 @@ const p2Slot = document.getElementById("p2-slot");
 const playAgainBtn = document.getElementById("play-again-btn");
 const mainMenuBtn = document.getElementById("main-menu-btn");
 
+// Handle auto-login from server session (for page refresh)
+socket.on("autoLogin", (data) => {
+    console.log("Auto-login:", data.username);
+    
+    loggedInUsername = data.username;
+    myName = data.username;
+    isLoggedIn = true;
+    
+    // Update UI
+    loggedInUsernameSpan.textContent = data.username;
+    welcomeMessage.style.display = "block";
+    logoutBtn.style.display = "inline-block";
+    authButtonsSection.style.display = "none";
+    lobbyContainer.style.display = "flex";
+    
+    // Set player name
+    playerNameInput.value = data.username;
+    
+    // Show stats if available
+    if (data.stats) {
+        console.log("User stats:", data.stats);
+    }
+});
+
 // Modal button handlers
 showLoginBtn.addEventListener('click', () => {
     showModal("login-modal");
@@ -98,6 +122,9 @@ logoutBtn.addEventListener('click', () => {
 });
 
 confirmLogoutBtn.addEventListener('click', () => {
+    // Tell server to clear session
+    socket.emit("logout");
+
     // Logout logic
     isLoggedIn = false;
     loggedInUsername = null;
@@ -428,6 +455,11 @@ function showGameInstructions(slot) {
 // Listen for game over
 socket.on("gameOver", (summary) => {
     console.log("Game over:", summary);
+
+    // Stop background music (in case it's still playing)
+    if (typeof stopBackgroundMusic === 'function') {
+        stopBackgroundMusic();
+    }
     
     // Show game over screen (defined in game.js)
     if (typeof showGameOverScreen === "function") {
@@ -440,6 +472,10 @@ socket.on("gameOver", (summary) => {
 
 // Listen for opponent disconnected during game
 socket.on("opponentDisconnected", (data) => {
+    if (typeof stopBackgroundMusic === 'function') {
+        stopBackgroundMusic();
+    }
+
     alert(data.message);
     
     // Reset to front page

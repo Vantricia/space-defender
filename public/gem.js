@@ -8,6 +8,14 @@
 const gemImage = new Image();
 gemImage.src = 'effects/gem.jpeg';
 
+const gemCollectSound = new Audio('effects/collect.mp3');
+gemCollectSound.volume = 0.3;
+
+function playGemCollectSound() {
+    gemCollectSound.currentTime = 0;
+    gemCollectSound.play();
+}
+
 /**
  * Gem factory function
  * @param {CanvasRenderingContext2D} ctx - The canvas context

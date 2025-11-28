@@ -7,6 +7,36 @@ let cheatMode = { P1: false, P2: false };
 // Load bullet image
 const bulletImage = new Image();
 bulletImage.src = 'effects/bullet.png';
+const bulletSound = new Audio('effects/bullet.mp3');
+bulletSound.volume = 0.3;
+
+// Adding sound effects
+function playBulletSound() {
+    bulletSound.currentTime = 0;
+    bulletSound.play();
+}
+
+const backgroundMusic = new Audio('effects/background.mp3');
+backgroundMusic.volume = 0.3;
+backgroundMusic.loop = true;
+
+function playBackgroundMusic() {
+    backgroundMusic.currentTime = 0;
+    backgroundMusic.play();
+}
+
+function stopBackgroundMusic() {
+    backgroundMusic.pause();
+    backgroundMusic.currentTime = 0;
+}
+
+const gameOverSound = new Audio('effects/game_over.mp3');
+gameOverSound.volume = 0.5;
+
+function playGameOverSound() {
+    gameOverSound.currentTime = 0;
+    gameOverSound.play();
+}
 
 // Factory Functions
 
@@ -28,7 +58,8 @@ function createPlayer(slot, name, character) {
         health: 100,
         gems: 0,
         score: 0,
-        alive: true
+        alive: true,
+        lastShootTime: 0
     };
 }
 
@@ -54,6 +85,8 @@ function initGame(serverData, mySlot) {
     // Build initial game state using factory functions
     const p1Data = serverData.players.find(p => p.slot === "P1");
     const p2Data = serverData.players.find(p => p.slot === "P2");
+
+    playBackgroundMusic();
     
     gameState = {
         mySlot: mySlot,
@@ -97,6 +130,47 @@ function initGame(serverData, mySlot) {
     // Start game loop
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
+
+        window.gameSocket.on("shoot", (data) => {
+        if (!gameState || !gameState.running || gameState.mySlot !== "P1") return;
+        const player = gameState.players[data.ownerSlot];
+        if (!player || !player.alive) return;
+        const now = performance.now();
+        if (now - player.lastShootTime < 200) return;
+        player.lastShootTime = now;
+        const bullet = createBullet(data.ownerSlot, data.x, data.y);
+        if (data.ownerSlot !== gameState.mySlot) {
+            playBulletSound();
+        }
+        //playBulletSound();
+        gameState.bullets.push(bullet);
+    });
+
+    // Listen for cheat mode (for P2)
+    window.gameSocket.on("cheatModeToggle", (data) => {
+        // Only P1 needs to know for collision checking
+        if (gameState.mySlot === "P1") {
+            cheatMode[data.slot] = data.enabled;
+            console.log(`[CHEAT] ${data.slot} cheat mode: ${data.enabled} (for collision only)`);
+        }
+    });
+
+    // Listen for gem collected event (for sound on P2)
+    window.gameSocket.on("gemCollected", (data) => {
+        // Play sound for the player who collected it
+        if (data.collectorSlot === gameState.mySlot) {
+            playGemCollectSound();
+        }
+    });
+
+    // Listen for asteroid crash event (for sound on P2)
+    window.gameSocket.on("asteroidCrash", (data) => {
+        // Play sound if I'm the one who crashed
+        if (gameState.mySlot === "P2" && data.crashedSlot === "P2") {
+            playAsteroidCrashSound();
+        }
+    });
+
 }
 
 // Set up keyboard event listeners
@@ -109,6 +183,14 @@ function setupControls() {
         if (e.key === "Control") {
             cheatMode[gameState.mySlot] = !cheatMode[gameState.mySlot];
             console.log(`Cheat mode for ${gameState.mySlot}:`, cheatMode[gameState.mySlot]);
+
+            // Notify other player of cheat mode change
+            if (window.gameSocket) {
+                window.gameSocket.emit("cheatModeToggle", {
+                    slot: gameState.mySlot,
+                    enabled: cheatMode[gameState.mySlot]
+                });
+            }
         }
         
         // Shooting controls
@@ -292,7 +374,7 @@ function updateAsteroids(dt) {
 
 // Update bullet positions
 function updateBullets(dt) {
-    const bulletSpeed = 300;
+    //const bulletSpeed = 300;
     
     for (let i = gameState.bullets.length - 1; i >= 0; i--) {
         const bullet = gameState.bullets[i];
@@ -313,8 +395,22 @@ function shoot(slot) {
     const player = gameState.players[slot];
     if (!player.alive) return;
     
+    const now = performance.now();
+    if (now - player.lastShootTime < 200) return;
+    player.lastShootTime = now;
+
+    playBulletSound();
+
     const bullet = createBullet(slot, player.x, player.y - player.height / 2);
     gameState.bullets.push(bullet);
+
+    if (window.gameSocket) {
+        window.gameSocket.emit("shoot", {
+            ownerSlot: slot,
+            x: bullet.x,
+            y: bullet.y
+        });
+    }
 }
 
 // Helper: Check if two circles overlap (for collision detection)
@@ -344,11 +440,24 @@ function checkCollisions() {
             
             // Check if gem center is inside player bounding box
             if (pointInRect(gemX, gemY, player.x, player.y, player.width, player.height)) {
+                //playGemCollectSound();
                 // Collect gem
                 player.gems += 1;
                 player.score += 10;
                 gameState.gems.splice(i, 1);
                 collected = true;
+
+                // Play sound for P1 (local)
+                if (player.slot === gameState.mySlot) {
+                    playGemCollectSound();
+                }
+                
+                // Notify P2 to play sound
+                if (window.gameSocket) {
+                    window.gameSocket.emit("gemCollected", {
+                        collectorSlot: player.slot
+                    });
+                }
             }
         });
     }
@@ -408,6 +517,18 @@ function checkCollisions() {
                 // Remove asteroid
                 gameState.asteroids.splice(i, 1);
                 asteroidHit = true;
+
+                // Play sound for P1 (local)
+                if (player.slot === gameState.mySlot) {
+                    playAsteroidCrashSound();
+                }
+                
+                // Notify P2 to play sound
+                if (window.gameSocket) {
+                    window.gameSocket.emit("asteroidCrash", {
+                        crashedSlot: player.slot
+                    });
+                }
             }
         });
     }
@@ -456,8 +577,8 @@ function draw() {
     Object.values(gameState.players).forEach(player => {
         if (!player.alive) return;
         
-        // Draw cheat mode shield if active
-        if (cheatMode[player.slot]) {
+        // Draw cheat mode shield if active only for own player
+        if (cheatMode[player.slot] && player.slot === gameState.mySlot) {
             ctx.strokeStyle = "#0088ff";
             ctx.lineWidth = 4;
             ctx.beginPath();
@@ -506,6 +627,7 @@ function updateHUD() {
     document.getElementById("hud-time").textContent = `${minutes}:${seconds.toString().padStart(2, "0")}`;
     
     // Player 1
+    document.getElementById("hud-p1-label").textContent = 'Player 1 : ' + gameState.players.P1.name;
     document.getElementById("hud-p1-health").textContent = gameState.players.P1.health;
     document.getElementById("hud-p1-gems").textContent = gameState.players.P1.gems;
     document.getElementById("hud-p1-score").textContent = gameState.players.P1.score;
@@ -519,6 +641,7 @@ function updateHUD() {
     }
     
     // Player 2
+    document.getElementById("hud-p2-label").textContent = 'Player 2 : ' + gameState.players.P2.name;
     document.getElementById("hud-p2-health").textContent = gameState.players.P2.health;
     document.getElementById("hud-p2-gems").textContent = gameState.players.P2.gems;
     document.getElementById("hud-p2-score").textContent = gameState.players.P2.score;
@@ -534,7 +657,11 @@ function updateHUD() {
 
 // End game when a player is eliminated
 function endGameByElimination(eliminatedSlot) {
+
     gameState.running = false;
+
+    stopBackgroundMusic();
+    playGameOverSound();
     
     const winnerSlot = eliminatedSlot === "P1" ? "P2" : "P1";
     const eliminatedPlayer = gameState.players[eliminatedSlot];
@@ -579,7 +706,11 @@ function endGameByElimination(eliminatedSlot) {
 
 // End game when time runs out
 function endGameByTime() {
+
     gameState.running = false;
+
+    stopBackgroundMusic();
+    playGameOverSound();
     
     const p1Score = gameState.players.P1.score;
     const p2Score = gameState.players.P2.score;

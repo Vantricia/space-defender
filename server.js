@@ -3,10 +3,26 @@ const http = require("http");
 const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
+const bcrypt = require("bcrypt");
+const session = require("express-session");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+//const io = new Server(server);
+
+const sessionMiddleware = session({
+    secret: "space-defender-super-secret-2025",
+    resave: true,
+    saveUninitialized: true,
+    cookie: {
+        maxAge: 10 * 60 * 1000,  // 10 minutes
+        httpOnly: true,
+        secure: false,   // change to true when using HTTPS
+        sameSite: "lax"
+    }
+});
+
+app.use(sessionMiddleware);
 
 // Database file path
 const DB_FILE = path.join(__dirname, "users.json");
@@ -44,6 +60,19 @@ loadDatabase();
 
 // Serve static files from public directory
 app.use(express.static("public"));
+app.use(express.json());
+
+// Share session with Socket.IO (THIS IS THE KEY)
+const io = new Server(server, {
+    cors: {
+        origin: "http://localhost:8000",
+        credentials: true
+    }
+});
+
+io.use((socket, next) => {
+    sessionMiddleware(socket.request, socket.request.res || {}, next);
+});
 
 // In-memory lobby state
 const lobby = {
@@ -53,6 +82,17 @@ const lobby = {
 
 // Socket.io connection handling
 io.on("connection", (socket) => {
+    const session = socket.request.session;
+    console.log(`[CONNECT] ${socket.id} | User: ${session.username || 'Guest'}`);
+
+    // AUTO-LOGIN IF SESSION EXISTS
+    if (session.username) {
+        socket.emit("autoLogin", {
+            username: session.username,
+            stats: getUserStats(session.username) || { gamesPlayed: 0, wins: 0, totalScore: 0 }
+        });
+    }
+
     console.log(`[INFO] New connection: ${socket.id}`);
 
     // Handle user registration (create new account)
@@ -77,10 +117,12 @@ io.on("connection", (socket) => {
             return;
         }
 
+        const passwordHash = bcrypt.hashSync(password, 10);
+
         // Create new user
         const newUser = {
             username: username.trim(),
-            password: password, // In production, use bcrypt to hash passwords
+            password: passwordHash, // In production, use bcrypt to hash passwords
             createdAt: new Date().toISOString(),
             gamesPlayed: 0,
             wins: 0,
@@ -89,6 +131,14 @@ io.on("connection", (socket) => {
 
         userDatabase.users.push(newUser);
         saveDatabase();
+
+        // Save session after account creation
+        session.username = newUser.username;
+        session.save((err) => {
+            if (err) {
+                console.error("[SESSION] Save error:", err);
+            }
+        });
 
         console.log(`[DB] New user created: ${newUser.username}`);
         socket.emit("createAccountSuccess", { username: newUser.username });
@@ -106,16 +156,24 @@ io.on("connection", (socket) => {
 
         // Find user in database
         const user = userDatabase.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
-        
         if (!user) {
             socket.emit("loginError", { message: "User not found" });
             return;
         }
 
-        if (user.password !== password) {
+        if (!bcrypt.compareSync(password, user.password)) {
             socket.emit("loginError", { message: "Incorrect password" });
             return;
         }
+
+        // SAVE USERNAME TO SESSION - THIS IS THE KEY PART
+        const session = socket.request.session;
+        session.username = user.username;
+        session.save((err) => {
+            if (err) {
+                console.error("[SESSION] Save error:", err);
+            }
+        });
 
         console.log(`[DB] User logged in: ${user.username}`);
         socket.emit("loginSuccess", { 
@@ -126,6 +184,13 @@ io.on("connection", (socket) => {
                 totalScore: user.totalScore
             }
         });
+    });
+
+    // Handle logout
+    socket.on("logout", () => {
+        console.log(`[AUTH] User logged out: ${session.username}`);
+        session.username = null;
+        session.save();
     });
 
     // Handle player registration (join lobby with character)
@@ -223,16 +288,38 @@ io.on("connection", (socket) => {
         io.emit("gameStart", gameData);
     });
 
+    // Handle cheat mode toggle
+    socket.on("cheatModeToggle", (data) => {
+        console.log(`[CHEAT] ${data.slot} cheat mode: ${data.enabled}`);
+        socket.broadcast.emit("cheatModeToggle", data);
+    });
+
     // Handle real-time player input synchronization
     socket.on("playerInput", (data) => {
         // Broadcast to all other clients
         socket.broadcast.emit("playerInput", data);
     });
 
+    // Handle real-time shooting
+    socket.on("shoot", (data) => {
+        // Broadcast to all other clients
+        socket.broadcast.emit("shoot", data);
+    });
+
     // Handle game state updates
     socket.on("stateUpdate", (data) => {
         // Broadcast to all other clients
         socket.broadcast.emit("stateUpdate", data);
+    });
+
+    // Handle gem collected
+    socket.on("gemCollected", (data) => {
+        socket.broadcast.emit("gemCollected", data);
+    });
+
+    // Handle asteroid crash
+    socket.on("asteroidCrash", (data) => {
+        socket.broadcast.emit("asteroidCrash", data);
     });
 
     // Handle game over
@@ -304,6 +391,19 @@ io.on("connection", (socket) => {
         }
     });
 });
+
+// Helper function to get user stats
+function getUserStats(username) {
+    const user = userDatabase.users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    if (user) {
+        return {
+            gamesPlayed: user.gamesPlayed || 0,
+            wins: user.wins || 0,
+            totalScore: user.totalScore || 0
+        };
+    }
+    return null;
+}
 
 // Start server
 const PORT = 8000;

@@ -8,6 +8,14 @@
 const asteroidSheet = new Image();
 asteroidSheet.src = 'effects/asteroids.png';
 
+const asteroidCrashSound = new Audio('effects/asteroid_crash.wav');
+asteroidCrashSound.volume = 0.5;
+
+function playAsteroidCrashSound() {
+    asteroidCrashSound.currentTime = 0;
+    asteroidCrashSound.play();
+}
+
 // Asteroid sprite sheet configuration (8x8 grid = 64 asteroids)
 const ASTEROID_SPRITE_SIZE = 128; // Each asteroid is 128x128 in sprite sheet
 const ASTEROID_SHEET_COLS = 8;
