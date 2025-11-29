@@ -49,9 +49,9 @@ function resetLobbyUI() {
     mySlot = null;
     
     // Reset character selection using the function from character.js
-    //if (typeof resetCharacterSelection === 'function') {
-    //    resetCharacterSelection();
-    //}
+    if (typeof resetCharacterSelection === 'function') {
+        resetCharacterSelection();
+    }
     
     // Reset the ready button
     if (registerBtn) {
@@ -432,19 +432,35 @@ socket.on("lobbyUpdate", (players) => {
     
     // Update character availability
     if (typeof updateCharacterAvailability === 'function') {
-        updateCharacterAvailability(players);
+        updateCharacterAvailability(players, myName);
     }
     
-    if (mySlot === "P1" && players.length === 2) {
-        console.log("[LOBBY] Showing start button for P1");
-        if (startBtn) {
-            startBtn.style.display = "inline-block";
-            startBtn.disabled = false;
+    // Handle start button visibility and text based on player slot
+    if (players.length === 2) {
+        // Both players are ready
+        if (mySlot === "P1") {
+            // P1 sees the start button
+            console.log("[LOBBY] Showing start button for P1");
+            if (startBtn) {
+                startBtn.style.display = "inline-block";
+                startBtn.disabled = false;
+                startBtn.textContent = "Start Game";
+            }
+        } else if (mySlot === "P2") {
+            // P2 sees waiting message
+            console.log("[LOBBY] Showing waiting message for P2");
+            if (startBtn) {
+                startBtn.style.display = "inline-block";
+                startBtn.disabled = true;
+                startBtn.textContent = "Waiting for Player 1 to start...";
+            }
         }
     } else {
+        // Not both players ready yet - hide start button
         if (startBtn) {
             startBtn.style.display = "none";
             startBtn.disabled = true;
+            startBtn.textContent = "Start Game";
         }
     }
 });
