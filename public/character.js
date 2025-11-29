@@ -89,14 +89,18 @@ function initCharacterSelection() {
 /**
  * Update character availability based on lobby state
  * @param {Array} players - Array of {slot, name, character} objects
+ * @param {string} currentPlayerName - The current player's name to exclude from blocking 
  */
-function updateCharacterAvailability(players) {
+function updateCharacterAvailability(players, currentPlayerName) {
     selectedCharacters.clear();
     
-    // Mark characters as taken
+    // Mark characters as taken by OTHER players (not me)
     players.forEach(player => {
         if (player.character !== undefined && player.character !== null) {
-            selectedCharacters.add(player.character);
+            // Only mark as taken if it's NOT my character
+            if (player.name !== currentPlayerName) {
+                selectedCharacters.add(player.character);
+            }
         }
     });
     
@@ -105,13 +109,47 @@ function updateCharacterAvailability(players) {
     characterOptions.forEach((option) => {
         const characterIndex = parseInt(option.dataset.character);
         
-        if (selectedCharacters.has(characterIndex) && myCharacter !== characterIndex) {
+        if (selectedCharacters.has(characterIndex)) {
+            // This character is taken by another player - disable it
             option.classList.add('disabled');
             option.classList.remove('selected');
+            
+            // If I had this character selected, deselect it
+            if (myCharacter === characterIndex) {
+                myCharacter = null;
+                console.log('[CHARACTER] My selected character was taken, deselecting');
+            }
         } else {
             option.classList.remove('disabled');
         }
     });
+}
+
+/**
+ * Reset character selection state
+ */
+function resetCharacterSelection() {
+    console.log('[CHARACTER] Resetting character selection');
+    
+    // Reset selected character
+    myCharacter = null;
+    selectedCharacters.clear();
+    
+    // Remove selected and disabled classes from all character options
+    const characterOptions = document.querySelectorAll('.character-option');
+    characterOptions.forEach(option => {
+        option.classList.remove('selected', 'disabled');
+    });
+    
+    console.log('[CHARACTER] Selection reset complete');
+}
+
+/**
+ * Get currently selected character
+ * @returns {number|null} Character index or null if none selected
+ */
+function getSelectedCharacter() {
+    return myCharacter;
 }
 
 /**
@@ -155,3 +193,4 @@ window.initCharacterSelection = initCharacterSelection;
 window.updateCharacterAvailability = updateCharacterAvailability;
 window.drawCharacterSprite = drawCharacterSprite;
 window.getSelectedCharacter = getSelectedCharacter;
+window.resetCharacterSelection = resetCharacterSelection;
