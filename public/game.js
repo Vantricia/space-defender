@@ -59,7 +59,9 @@ function createPlayer(slot, name, character) {
         gems: 0,
         score: 0,
         alive: true,
-        lastShootTime: 0
+        lastShootTime: 0,
+        activePowerUps: {}, // Track active power-ups { type: { endTime, originalValue } }
+        baseSpeed: 200 // Store base speed for speed power-up
     };
 }
 
@@ -98,8 +100,11 @@ function initGame(serverData, mySlot) {
         asteroids: [],
         gems: [],
         bullets: [],
+        powerUps: [],
         lastSpawnAsteroid: 0,
         lastSpawnGem: 0,
+        lastSpawnPowerUp: 0,
+        nextPowerUpDelay: Math.random() * 10 + 5, // Random 5-15 seconds
         running: false, // Don't start until instructions are gone
         pressed: {},
         gameStartTime: serverData.duration
@@ -135,14 +140,11 @@ function initGame(serverData, mySlot) {
         if (!gameState || !gameState.running || gameState.mySlot !== "P1") return;
         const player = gameState.players[data.ownerSlot];
         if (!player || !player.alive) return;
-        const now = performance.now();
-        if (now - player.lastShootTime < 200) return;
-        player.lastShootTime = now;
+        
         const bullet = createBullet(data.ownerSlot, data.x, data.y);
         if (data.ownerSlot !== gameState.mySlot) {
             playBulletSound();
         }
-        //playBulletSound();
         gameState.bullets.push(bullet);
     });
 
@@ -258,9 +260,12 @@ function update(dt) {
         if (gameState.running) {
             spawnAsteroids(dt);
             spawnGems(dt);
+            spawnPowerUps(dt);
             updateGems(dt);
             updateAsteroids(dt);
             updateBullets(dt);
+            updatePowerUps(dt);
+            checkPowerUpExpiration();
             checkCollisions();
         }
         
@@ -276,10 +281,14 @@ function update(dt) {
 
 // Update player positions based on keyboard input
 function updatePlayers(dt) {
-    const speed = 200; // pixels per second
-    
     Object.values(gameState.players).forEach(player => {
         if (!player.alive) return;
+        
+        // Get speed (base speed or boosted speed from power-up)
+        let speed = player.baseSpeed;
+        if (player.activePowerUps.speed) {
+            speed = player.baseSpeed * 1.5; // 50% speed boost
+        }
         
         // Reset velocity
         player.vx = 0;
@@ -359,6 +368,92 @@ function updateGems(dt) {
     });
 }
 
+// Spawn power-ups randomly
+function spawnPowerUps(dt) {
+    gameState.lastSpawnPowerUp += dt;
+    
+    // Spawn when timer exceeds the random delay
+    if (gameState.lastSpawnPowerUp >= gameState.nextPowerUpDelay) {
+        gameState.lastSpawnPowerUp = 0;
+        // Set next random spawn delay (5-15 seconds)
+        gameState.nextPowerUpDelay = Math.random() * 10 + 5;
+        
+        // Random position at top of screen
+        const x = Math.random() * (canvas.width - 80) + 40;
+        const y = -20;
+        
+        // Random power-up type
+        const randomType = POWERUP_LIST[Math.floor(Math.random() * POWERUP_LIST.length)];
+        
+        const powerUp = createPowerUp(x, y, randomType);
+        gameState.powerUps.push(powerUp);
+    }
+}
+
+// Update power-up positions
+function updatePowerUps(dt) {
+    // Update each power-up
+    gameState.powerUps.forEach(powerUp => {
+        powerUp.update(dt);
+    });
+    
+    // Remove off-screen power-ups
+    gameState.powerUps = gameState.powerUps.filter(powerUp => 
+        !powerUp.isOffScreen()
+    );
+}
+
+// Check and remove expired power-ups
+function checkPowerUpExpiration() {
+    const now = performance.now();
+    
+    Object.values(gameState.players).forEach(player => {
+        Object.keys(player.activePowerUps).forEach(type => {
+            const powerUp = player.activePowerUps[type];
+            // Use syncTime (Date.now) for consistent expiration across devices
+            const elapsed = Date.now() - powerUp.syncTime;
+            if (elapsed >= powerUp.duration) {
+                // Power-up expired, remove it
+                delete player.activePowerUps[type];
+            }
+        });
+    });
+}
+
+// Apply power-up effect to player
+function applyPowerUp(player, type) {
+    const duration = 20000; // 20 seconds in milliseconds
+    
+    switch(type) {
+        case 'shield':
+            // Shield power-up (always reset to 20s max)
+            player.activePowerUps.shield = {
+                duration: duration,
+                startTime: performance.now(),
+                syncTime: Date.now() // For network sync
+            };
+            break;
+            
+        case 'speed':
+            // Speed boost (always reset to 20s max)
+            player.activePowerUps.speed = {
+                duration: duration,
+                startTime: performance.now(),
+                syncTime: Date.now() // For network sync
+            };
+            break;
+            
+        case 'triple-shot':
+            // Triple bullet power-up (always reset to 20s max)
+            player.activePowerUps['triple-shot'] = {
+                duration: duration,
+                startTime: performance.now(),
+                syncTime: Date.now() // For network sync
+            };
+            break;
+    }
+}
+
 // Update asteroid positions
 function updateAsteroids(dt) {
     // Update each asteroid
@@ -401,15 +496,39 @@ function shoot(slot) {
 
     playBulletSound();
 
-    const bullet = createBullet(slot, player.x, player.y - player.height / 2);
-    gameState.bullets.push(bullet);
-
-    if (window.gameSocket) {
-        window.gameSocket.emit("shoot", {
-            ownerSlot: slot,
-            x: bullet.x,
-            y: bullet.y
+    // Check if triple-shot power-up is active
+    if (player.activePowerUps['triple-shot']) {
+        // Shoot 3 bullets: left, center, right
+        const bulletPositions = [
+            { x: player.x - 15, y: player.y - player.height / 2 }, // Left
+            { x: player.x, y: player.y - player.height / 2 },      // Center
+            { x: player.x + 15, y: player.y - player.height / 2 }  // Right
+        ];
+        
+        bulletPositions.forEach(pos => {
+            const bullet = createBullet(slot, pos.x, pos.y);
+            gameState.bullets.push(bullet);
+            
+            if (window.gameSocket) {
+                window.gameSocket.emit("shoot", {
+                    ownerSlot: slot,
+                    x: bullet.x,
+                    y: bullet.y
+                });
+            }
         });
+    } else {
+        // Normal single bullet
+        const bullet = createBullet(slot, player.x, player.y - player.height / 2);
+        gameState.bullets.push(bullet);
+
+        if (window.gameSocket) {
+            window.gameSocket.emit("shoot", {
+                ownerSlot: slot,
+                x: bullet.x,
+                y: bullet.y
+            });
+        }
     }
 }
 
@@ -429,6 +548,31 @@ function pointInRect(px, py, rx, ry, rw, rh) {
 
 // Check all collisions
 function checkCollisions() {
+    // Player <-> Power-Up collisions
+    for (let i = gameState.powerUps.length - 1; i >= 0; i--) {
+        const powerUp = gameState.powerUps[i];
+        let collected = false;
+        
+        Object.values(gameState.players).forEach(player => {
+            if (!player.alive || collected) return;
+            
+            const playerRadius = Math.max(player.width, player.height) / 2;
+            
+            // Check circle-to-circle collision
+            if (circlesOverlap(powerUp.x, powerUp.y, powerUp.radius, player.x, player.y, playerRadius)) {
+                // Apply power-up effect
+                applyPowerUp(player, powerUp.type.effect);
+                gameState.powerUps.splice(i, 1);
+                collected = true;
+                
+                // Play gem collect sound as feedback (reuse existing sound)
+                if (player.slot === gameState.mySlot) {
+                    playGemCollectSound();
+                }
+            }
+        });
+    }
+    
     // Player <-> Gem collisions
     for (let i = gameState.gems.length - 1; i >= 0; i--) {
         const gem = gameState.gems[i];
@@ -504,7 +648,8 @@ function checkCollisions() {
             
             if (circlesOverlap(bounds.centerX, bounds.centerY, bounds.radius, player.x, player.y, playerRadius)) {
                 // Collision detected
-                if (!cheatMode[player.slot]) {
+                // Check if player has shield power-up
+                if (!cheatMode[player.slot] && !player.activePowerUps.shield) {
                     player.health -= 25;
                     
                     if (player.health <= 0) {
@@ -544,6 +689,11 @@ function draw() {
         gem.draw();
     });
     
+    // Draw power-ups
+    gameState.powerUps.forEach(powerUp => {
+        powerUp.draw();
+    });
+    
     // Draw asteroids
     gameState.asteroids.forEach(asteroid => {
         asteroid.draw();
@@ -576,6 +726,21 @@ function draw() {
     // Draw players
     Object.values(gameState.players).forEach(player => {
         if (!player.alive) return;
+        
+        // Draw shield power-up effect
+        if (player.activePowerUps.shield) {
+            ctx.strokeStyle = "#FFD700"; // Gold color
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.width / 2 + 8, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            ctx.strokeStyle = "rgba(255, 215, 0, 0.3)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.width / 2 + 12, 0, Math.PI * 2);
+            ctx.stroke();
+        }
         
         // Draw cheat mode shield if active only for own player
         if (cheatMode[player.slot] && player.slot === gameState.mySlot) {
@@ -640,6 +805,9 @@ function updateHUD() {
         p1HealthBar.classList.remove("low");
     }
     
+    // Display active power-ups for P1
+    updatePowerUpDisplay('P1');
+    
     // Player 2
     document.getElementById("hud-p2-label").textContent = 'Player 2 : ' + gameState.players.P2.name;
     document.getElementById("hud-p2-health").textContent = gameState.players.P2.health;
@@ -652,6 +820,44 @@ function updateHUD() {
         p2HealthBar.classList.add("low");
     } else {
         p2HealthBar.classList.remove("low");
+    }
+    
+    // Display active power-ups for P2
+    updatePowerUpDisplay('P2');
+}
+
+// Update power-up display in HUD
+function updatePowerUpDisplay(slot) {
+    const player = gameState.players[slot];
+    const activePowerUps = Object.keys(player.activePowerUps);
+    
+    // Get or create power-up display element
+    let powerUpDiv = document.getElementById(`hud-${slot.toLowerCase()}-powerups`);
+    if (!powerUpDiv) {
+        const hudSection = document.querySelector(`#hud .hud-section:${slot === 'P1' ? 'first-child' : 'last-child'}`);
+        powerUpDiv = document.createElement('div');
+        powerUpDiv.id = `hud-${slot.toLowerCase()}-powerups`;
+        powerUpDiv.style.marginTop = '5px';
+        powerUpDiv.style.fontSize = '0.75rem';
+        hudSection.appendChild(powerUpDiv);
+    }
+    
+    if (activePowerUps.length > 0) {
+        const powerUpTexts = activePowerUps.map(type => {
+            const powerUp = player.activePowerUps[type];
+            // Use syncTime (Date.now) for consistent display across devices
+            const elapsed = Date.now() - powerUp.syncTime;
+            const remaining = Math.max(0, Math.ceil((powerUp.duration - elapsed) / 1000));
+            const icons = {
+                'shield': '🛡️',
+                'speed': '⚡',
+                'triple-shot': '🔫'
+            };
+            return `${icons[type] || '⭐'} ${remaining}s`;
+        });
+        powerUpDiv.innerHTML = `<span style="color: #FFD700;">${powerUpTexts.join(' ')}</span>`;
+    } else {
+        powerUpDiv.innerHTML = '';
     }
 }
 
@@ -779,7 +985,8 @@ function broadcastGameState() {
                 health: gameState.players.P1.health,
                 gems: gameState.players.P1.gems,
                 score: gameState.players.P1.score,
-                alive: gameState.players.P1.alive
+                alive: gameState.players.P1.alive,
+                activePowerUps: gameState.players.P1.activePowerUps
             },
             P2: {
                 x: gameState.players.P2.x,
@@ -787,7 +994,8 @@ function broadcastGameState() {
                 health: gameState.players.P2.health,
                 gems: gameState.players.P2.gems,
                 score: gameState.players.P2.score,
-                alive: gameState.players.P2.alive
+                alive: gameState.players.P2.alive,
+                activePowerUps: gameState.players.P2.activePowerUps
             }
         },
         asteroids: gameState.asteroids.map(a => a.serialize()),
@@ -799,6 +1007,11 @@ function broadcastGameState() {
             x: b.x,
             y: b.y,
             ownerSlot: b.ownerSlot
+        })),
+        powerUps: gameState.powerUps.map(p => ({
+            x: p.x,
+            y: p.y,
+            type: p.type
         }))
     };
     
@@ -820,11 +1033,65 @@ function receiveGameState(state) {
     gameState.players.P1.score = state.players.P1.score;
     gameState.players.P1.alive = state.players.P1.alive;
     
+    // Sync power-ups with adjusted startTime for P1
+    const receivedP1PowerUps = state.players.P1.activePowerUps || {};
+    const existingP1PowerUps = { ...gameState.players.P1.activePowerUps };
+    
+    // Update existing and add new power-ups
+    Object.keys(receivedP1PowerUps).forEach(type => {
+        const existing = existingP1PowerUps[type];
+        const received = receivedP1PowerUps[type];
+        
+        if (!existing || existing.syncTime !== received.syncTime) {
+            // New power-up or refreshed (picked up again), update syncTime
+            gameState.players.P1.activePowerUps[type] = {
+                duration: received.duration,
+                startTime: performance.now(),
+                syncTime: received.syncTime
+            };
+        }
+        // If syncTime matches, keep existing (no refresh happened)
+    });
+    
+    // Remove expired power-ups
+    Object.keys(existingP1PowerUps).forEach(type => {
+        if (!receivedP1PowerUps[type]) {
+            delete gameState.players.P1.activePowerUps[type];
+        }
+    });
+    
     // Update P2 stats only (NOT position - we control that locally)
     gameState.players.P2.health = state.players.P2.health;
     gameState.players.P2.gems = state.players.P2.gems;
     gameState.players.P2.score = state.players.P2.score;
     gameState.players.P2.alive = state.players.P2.alive;
+    
+    // Sync power-ups with adjusted startTime for P2
+    const receivedP2PowerUps = state.players.P2.activePowerUps || {};
+    const existingP2PowerUps = { ...gameState.players.P2.activePowerUps };
+    
+    // Update existing and add new power-ups
+    Object.keys(receivedP2PowerUps).forEach(type => {
+        const existing = existingP2PowerUps[type];
+        const received = receivedP2PowerUps[type];
+        
+        if (!existing || existing.syncTime !== received.syncTime) {
+            // New power-up or refreshed (picked up again), update syncTime
+            gameState.players.P2.activePowerUps[type] = {
+                duration: received.duration,
+                startTime: performance.now(),
+                syncTime: received.syncTime
+            };
+        }
+        // If syncTime matches, keep existing (no refresh happened)
+    });
+    
+    // Remove expired power-ups
+    Object.keys(existingP2PowerUps).forEach(type => {
+        if (!receivedP2PowerUps[type]) {
+            delete gameState.players.P2.activePowerUps[type];
+        }
+    });
     
     // Update asteroids
     gameState.asteroids = state.asteroids.map(a => {
@@ -843,6 +1110,9 @@ function receiveGameState(state) {
     
     // Update bullets
     gameState.bullets = state.bullets.map(b => createBullet(b.ownerSlot, b.x, b.y));
+    
+    // Update power-ups
+    gameState.powerUps = (state.powerUps || []).map(p => createPowerUp(p.x, p.y, p.type));
 }
 
 // Function to reset game state (call before starting new game)

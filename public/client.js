@@ -7,11 +7,19 @@ let myName = null;
 let loggedInUsername = null;
 let isLoggedIn = false;
 
+// Show welcome section after a short delay if no autologin
+setTimeout(() => {
+    const welcomeSection = document.getElementById('welcome-section');
+    if (welcomeSection && welcomeSection.style.visibility === 'hidden') {
+        welcomeSection.style.visibility = 'visible';
+    }
+}, 500);
+
 // Initialize character selection
 if (typeof initCharacterSelection === 'function') {
     initCharacterSelection();
 }
-
+ 
 // Helper function to show a specific screen
 function showScreen(id) {
     // Hide all screens
@@ -141,6 +149,8 @@ socket.on("autoLogin", (data) => {
     isLoggedIn = true;
     
     // Update UI
+    const welcomeSection = document.getElementById('welcome-section');
+    welcomeSection.style.visibility = 'visible';
     loggedInUsernameSpan.textContent = data.username;
     welcomeMessage.style.display = "block";
     logoutBtn.style.display = "inline-block";
@@ -309,6 +319,8 @@ socket.on("loginSuccess", (data) => {
     isLoggedIn = true;
     
     // Update UI
+    const welcomeSection = document.getElementById('welcome-section');
+    welcomeSection.style.visibility = 'visible';
     loggedInUsernameSpan.textContent = data.username;
     welcomeMessage.style.display = "block";
     logoutBtn.style.display = "inline-block";
@@ -578,6 +590,9 @@ socket.on("opponentDisconnected", (data) => {
 
 // Handle "Play Again" button
 playAgainBtn.addEventListener("click", () => {
+    // Immediately hide game over screen and show lobby
+    showScreen("front-page");
+    
     // Re-enable the Ready button for next game
     registerBtn.disabled = false;
     mySlot = null;
@@ -593,9 +608,6 @@ playAgainBtn.addEventListener("click", () => {
     // Reset lobby UI
     resetLobbyUI();
 
-    // Return to lobby
-    showScreen("front-page");
-    
     // Re-show auth buttons if logged out
     if (!isLoggedIn) {
         welcomeMessage.style.display = "none";

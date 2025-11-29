@@ -15,7 +15,7 @@ const sessionMiddleware = session({
     resave: true,
     saveUninitialized: true,
     cookie: {
-        maxAge: 10 * 60 * 1000,  // 10 minutes
+        maxAge: 24 * 60 * 60 * 1000,  // 24 hours (persists on refresh)
         httpOnly: true,
         secure: false,   // change to true when using HTTPS
         sameSite: "lax"
