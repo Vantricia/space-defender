@@ -71,6 +71,7 @@ function resetLobbyUI() {
     if (startBtn) {
         startBtn.style.display = "none";
         startBtn.disabled = true;
+        startBtn.textContent = "Start Game";
     }
     
     // Reset player slots to "Waiting"
@@ -159,12 +160,130 @@ socket.on("autoLogin", (data) => {
     
     // Set player name
     playerNameInput.value = data.username;
+
+    // Restore lobby state if user was in lobby
+    if (data.inLobby && data.slot) {
+        mySlot = data.slot;
+        console.log(`[LOBBY] Restored slot: ${mySlot}`);
+        
+        // Disable ready button since already in lobby
+        if (registerBtn) {
+            registerBtn.disabled = true;
+            registerBtn.textContent = mySlot === "P1" ? "Ready! (Player 1)" : "Ready! (Player 2)";
+        }
+        
+        // Select their character in UI
+        if (data.character !== null && data.character !== undefined) {
+            const characterOptions = document.querySelectorAll('.character-option');
+            characterOptions.forEach(option => {
+                option.classList.remove('selected');
+                if (parseInt(option.dataset.character) === data.character) {
+                    option.classList.add('selected');
+                }
+            });
+        }
+    }
+    
+    // Update lobby display with current players
+    if (data.lobby && data.lobby.length > 0) {
+        updateLobbyDisplay(data.lobby);
+    }
     
     // Show stats if available
     if (data.stats) {
         console.log("User stats:", data.stats);
     }
 });
+
+// Function to update lobby display
+function updateLobbyDisplay(players) {
+    console.log("[LOBBY] Updating display with players:", players);
+    
+    // Reset player name displays
+    if (p1NameSpan) {
+        p1NameSpan.textContent = "[Waiting]";
+        p1NameSpan.className = "waiting";
+    }
+    if (p2NameSpan) {
+        p2NameSpan.textContent = "[Waiting]";
+        p2NameSpan.className = "waiting";
+    }
+    
+    // Reset slot styling
+    if (p1Slot) p1Slot.classList.remove("connected");
+    if (p2Slot) p2Slot.classList.remove("connected");
+    
+    // Hide character icons
+    const p1CharCanvas = document.getElementById("p1-character");
+    const p2CharCanvas = document.getElementById("p2-character");
+    if (p1CharCanvas) p1CharCanvas.style.display = "none";
+    if (p2CharCanvas) p2CharCanvas.style.display = "none";
+    
+    // Fill in connected players
+    players.forEach(player => {
+        if (player.slot === "P1") {
+            if (p1NameSpan) {
+                p1NameSpan.textContent = player.name;
+                p1NameSpan.className = "player-name";
+            }
+            if (p1Slot) p1Slot.classList.add("connected");
+            
+            // Show character icon
+            if (player.character !== undefined && player.character !== null) {
+                if (p1CharCanvas && typeof drawCharacterSprite === 'function') {
+                    const ctx = p1CharCanvas.getContext("2d");
+                    p1CharCanvas.style.display = "inline-block";
+                    ctx.clearRect(0, 0, p1CharCanvas.width, p1CharCanvas.height);
+                    drawCharacterSprite(ctx, player.character, 0, 0, 30);
+                }
+            }
+        } else if (player.slot === "P2") {
+            if (p2NameSpan) {
+                p2NameSpan.textContent = player.name;
+                p2NameSpan.className = "player-name";
+            }
+            if (p2Slot) p2Slot.classList.add("connected");
+            
+            // Show character icon
+            if (player.character !== undefined && player.character !== null) {
+                if (p2CharCanvas && typeof drawCharacterSprite === 'function') {
+                    const ctx = p2CharCanvas.getContext("2d");
+                    p2CharCanvas.style.display = "inline-block";
+                    ctx.clearRect(0, 0, p2CharCanvas.width, p2CharCanvas.height);
+                    drawCharacterSprite(ctx, player.character, 0, 0, 30);
+                }
+            }
+        }
+    });
+    
+    // Update character availability - disable characters taken by others
+    if (typeof updateCharacterAvailability === 'function') {
+        updateCharacterAvailability(players, myName);
+    }
+    
+    // Handle start button visibility
+    if (players.length === 2) {
+        if (mySlot === "P1") {
+            if (startBtn) {
+                startBtn.style.display = "inline-block";
+                startBtn.disabled = false;
+                startBtn.textContent = "Start Game";
+            }
+        } else if (mySlot === "P2") {
+            if (startBtn) {
+                startBtn.style.display = "inline-block";
+                startBtn.disabled = true;
+                startBtn.textContent = "Waiting for Player 1 to start...";
+            }
+        }
+    } else {
+        if (startBtn) {
+            startBtn.style.display = "none";
+            startBtn.disabled = true;
+            startBtn.textContent = "Start Game";
+        }
+    }
+}
 
 // Modal button handlers
 showLoginBtn.addEventListener('click', () => {
@@ -190,7 +309,8 @@ closeRegisterModalBtn.addEventListener('click', () => {
 });
 
 logoutBtn.addEventListener('click', () => {
-    showModal("logout-confirm-modal");
+    //showModal("logout-confirm-modal");
+    performLogout();
 });
 
 confirmLogoutBtn.addEventListener('click', () => {
@@ -391,94 +511,46 @@ socket.on("registerSuccess", (data) => {
 socket.on("lobbyUpdate", (players) => {
     console.log("Lobby update:", players);
     
-    // Reset player name displays
-    if (p1NameSpan) {
-        p1NameSpan.textContent = "[Waiting]";
-        p1NameSpan.className = "waiting";
-    }
-    if (p2NameSpan) {
-        p2NameSpan.textContent = "[Waiting]";
-        p2NameSpan.className = "waiting";
-    }
+    // Check if I'm in the lobby
+    let myPlayerInLobby = false;
     
-    // Reset slot styling
-    if (p1Slot) p1Slot.classList.remove("connected");
-    if (p2Slot) p2Slot.classList.remove("connected");
-    
-    // Hide character icons
-    const p1CharCanvas = document.getElementById("p1-character");
-    const p2CharCanvas = document.getElementById("p2-character");
-    if (p1CharCanvas) p1CharCanvas.style.display = "none";
-    if (p2CharCanvas) p2CharCanvas.style.display = "none";
-    
-    // Fill in connected players
     players.forEach(player => {
-        if (player.slot === "P1") {
-            if (p1NameSpan) {
-                p1NameSpan.textContent = player.name;
-                p1NameSpan.className = "player-name";
-            }
-            if (p1Slot) p1Slot.classList.add("connected");
-            
-            // Show character icon
-            if (player.character !== undefined && player.character !== null) {
-                if (p1CharCanvas && typeof drawCharacterSprite === 'function') {
-                    const ctx = p1CharCanvas.getContext("2d");
-                    p1CharCanvas.style.display = "inline-block";
-                    ctx.clearRect(0, 0, p1CharCanvas.width, p1CharCanvas.height);
-                    drawCharacterSprite(ctx, player.character, 0, 0, 30);
-                }
-            }
-        } else if (player.slot === "P2") {
-            if (p2NameSpan) {
-                p2NameSpan.textContent = player.name;
-                p2NameSpan.className = "player-name";
-            }
-            if (p2Slot) p2Slot.classList.add("connected");
-            
-            // Show character icon
-            if (player.character !== undefined && player.character !== null) {
-                if (p2CharCanvas && typeof drawCharacterSprite === 'function') {
-                    const ctx = p2CharCanvas.getContext("2d");
-                    p2CharCanvas.style.display = "inline-block";
-                    ctx.clearRect(0, 0, p2CharCanvas.width, p2CharCanvas.height);
-                    drawCharacterSprite(ctx, player.character, 0, 0, 30);
-                }
-            }
+        // Check if this is me by name match
+        if (player.name.toLowerCase() === myName?.toLowerCase()) {
+            mySlot = player.slot;
+            myPlayerInLobby = true;
         }
     });
     
-    // Update character availability
-    if (typeof updateCharacterAvailability === 'function') {
-        updateCharacterAvailability(players, myName);
+    // If I'm not in the lobby anymore, reset my slot
+    if (!myPlayerInLobby && mySlot !== null) {
+        mySlot = null;
+        
+        // Reset lobby UI
+        resetLobbyUI();
     }
     
-    // Handle start button visibility and text based on player slot
-    if (players.length === 2) {
-        // Both players are ready
-        if (mySlot === "P1") {
-            // P1 sees the start button
-            console.log("[LOBBY] Showing start button for P1");
-            if (startBtn) {
-                startBtn.style.display = "inline-block";
-                startBtn.disabled = false;
-                startBtn.textContent = "Start Game";
-            }
-        } else if (mySlot === "P2") {
-            // P2 sees waiting message
-            console.log("[LOBBY] Showing waiting message for P2");
-            if (startBtn) {
-                startBtn.style.display = "inline-block";
-                startBtn.disabled = true;
-                startBtn.textContent = "Waiting for Player 1 to start...";
-            }
-        }
-    } else {
-        // Not both players ready yet - hide start button
-        if (startBtn) {
-            startBtn.style.display = "none";
-            startBtn.disabled = true;
-            startBtn.textContent = "Start Game";
+    // Update the lobby display
+    updateLobbyDisplay(players);
+    
+    // Update ready button text based on slot
+    if (mySlot && registerBtn && registerBtn.disabled) {
+        registerBtn.textContent = mySlot === "P1" ? "Ready! (Player 1)" : "Ready! (Player 2)";
+    }
+});
+
+// Listen for slot change (when promoted from P2 to P1)
+socket.on("slotChanged", (data) => {
+    console.log(`[LOBBY] Slot changed to: ${data.newSlot}`);
+    mySlot = data.newSlot;
+    
+    // Show notification to user
+    if (data.newSlot === "P1") {
+        console.log("[LOBBY] You have been promoted to Player 1!");
+        
+        // Update ready button text
+        if (registerBtn) {
+            registerBtn.textContent = "Ready! (Player 1)";
         }
     }
 });
@@ -620,9 +692,19 @@ playAgainBtn.addEventListener("click", () => {
 // Handle "Main Menu" button
 gameOverLogoutBtn.addEventListener("click", () => {
 
-    console.log("[AUTH] Logging out from game over screen");
+    performLogout();
+});
+
+/**
+ * Perform logout - clears session and redirects to authentication page
+ */
+function performLogout() {
+    console.log("[AUTH] Performing logout...");
     
-    // Tell server to clear THIS user's session only
+    // Hide any open modals
+    hideModal("logout-confirm-modal");
+    
+    // Tell server to clear session
     socket.emit("logout");
     
     // Stop background music if still playing
@@ -635,7 +717,7 @@ gameOverLogoutBtn.addEventListener("click", () => {
         window.resetGameState();
     }
     
-    // Clear all local state for THIS user
+    // Clear all local state
     isLoggedIn = false;
     loggedInUsername = null;
     myName = null;
@@ -665,8 +747,8 @@ gameOverLogoutBtn.addEventListener("click", () => {
     // Return to front page (authentication screen)
     showScreen("front-page");
     
-    console.log("[AUTH] Logged out successfully from game over screen");
-});
+    console.log("[AUTH] Logged out successfully - redirected to authentication page");
+}
 
 // Export socket for use in game.js
 window.gameSocket = socket;

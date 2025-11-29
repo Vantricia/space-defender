@@ -87,6 +87,27 @@ function initCharacterSelection() {
 }
 
 /**
+ * Set the selected character (for restoring from session)
+ * @param {number} characterIndex - Index of character to select
+ */
+function setSelectedCharacter(characterIndex) {
+    if (characterIndex === null || characterIndex === undefined) return;
+    
+    myCharacter = characterIndex;
+    
+    // Update UI
+    const characterOptions = document.querySelectorAll('.character-option');
+    characterOptions.forEach(option => {
+        option.classList.remove('selected');
+        if (parseInt(option.dataset.character) === characterIndex) {
+            option.classList.add('selected');
+        }
+    });
+    
+    console.log('[CHARACTER] Set selected character to:', characterIndex);
+}
+
+/**
  * Update character availability based on lobby state
  * @param {Array} players - Array of {slot, name, character} objects
  * @param {string} currentPlayerName - The current player's name to exclude from blocking 
@@ -194,3 +215,4 @@ window.updateCharacterAvailability = updateCharacterAvailability;
 window.drawCharacterSprite = drawCharacterSprite;
 window.getSelectedCharacter = getSelectedCharacter;
 window.resetCharacterSelection = resetCharacterSelection;
+window.setSelectedCharacter = setSelectedCharacter;

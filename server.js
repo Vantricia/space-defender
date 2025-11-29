@@ -88,12 +88,36 @@ io.on("connection", (socket) => {
     const session = socket.request.session;
     console.log(`[CONNECT] ${socket.id} | User: ${session.username || 'Guest'}`);
 
-    // AUTO-LOGIN IF SESSION EXISTS - but only if not logged in elsewhere
+    // AUTO-LOGIN IF SESSION EXISTS
     if (session.username) {
+        // Check if user was in lobby and update their socket id
+        const playerInLobby = lobby.players.find(p => p.name.toLowerCase() === session.username.toLowerCase());
+        
+        if (playerInLobby) {
+            // Update socket id for reconnected player
+            playerInLobby.id = socket.id;
+            console.log(`[LOBBY] Updated socket id for ${session.username} (${playerInLobby.slot})`);
+        }
+        
+        // Get current lobby state
+        const lobbyData = lobby.players.map(p => ({ 
+            slot: p.slot, 
+            name: p.name, 
+            character: p.character 
+        }));
+        
         socket.emit("autoLogin", {
             username: session.username,
-            stats: getUserStats(session.username) || { gamesPlayed: 0, wins: 0, totalScore: 0 }
+            stats: getUserStats(session.username) || { gamesPlayed: 0, wins: 0, totalScore: 0 },
+            inLobby: !!playerInLobby,
+            slot: playerInLobby ? playerInLobby.slot : null,
+            character: playerInLobby ? playerInLobby.character : null,
+            lobby: lobbyData,
+            gameStarted: lobby.gameStarted
         });
+        
+        // Add to active sessions
+        activeSessions.set(session.username, socket.id);
     }
 
     console.log(`[INFO] New connection: ${socket.id}`);
@@ -205,6 +229,33 @@ io.on("connection", (socket) => {
         if (session.username) {
             activeSessions.delete(session.username);
         }
+
+        // Remove player from lobby if they're in it
+        const playerIndex = lobby.players.findIndex(p => p.id === socket.id);
+        if (playerIndex !== -1) {
+            const disconnectedPlayer = lobby.players[playerIndex];
+            console.log(`[LOBBY] ${disconnectedPlayer.name} (${disconnectedPlayer.slot}) logged out`);
+            
+            lobby.players.splice(playerIndex, 1);
+            
+            // If P1 left and P2 exists, promote P2 to P1
+            if (disconnectedPlayer.slot === "P1" && lobby.players.length > 0) {
+                const remainingPlayer = lobby.players[0];
+                remainingPlayer.slot = "P1";
+                console.log(`[LOBBY] Promoted ${remainingPlayer.name} to P1`);
+            }
+            
+            // Broadcast updated lobby
+            const lobbyData = lobby.players.map(p => ({ slot: p.slot, name: p.name, character: p.character }));
+            io.emit("lobbyUpdate", lobbyData);
+            
+            // Notify the promoted player
+            if (disconnectedPlayer.slot === "P1" && lobby.players.length > 0) {
+                const promotedPlayer = lobby.players[0];
+                io.to(promotedPlayer.id).emit("slotChanged", { newSlot: "P1" });
+            }
+        }
+
         session.username = null;
         session.save();
     });
@@ -346,9 +397,20 @@ io.on("connection", (socket) => {
         // Remove this player from lobby if they're in it
         const playerIndex = lobby.players.findIndex(p => p.id === socket.id);
         if (playerIndex !== -1) {
+            const leavingPlayer = lobby.players[playerIndex];
             lobby.players.splice(playerIndex, 1);
+            
+            // If P1 left and P2 exists, promote P2 to P1
+            if (leavingPlayer.slot === "P1" && lobby.players.length > 0) {
+                const remainingPlayer = lobby.players[0];
+                remainingPlayer.slot = "P1";
+                console.log(`[LOBBY] Promoted ${remainingPlayer.name} to P1`);
+                
+                // Notify the promoted player
+                io.to(remainingPlayer.id).emit("slotChanged", { newSlot: "P1" });
+            }
         }
-        
+
         // Reset game started flag if no players left
         if (lobby.players.length === 0) {
             lobby.gameStarted = false;
@@ -429,7 +491,16 @@ io.on("connection", (socket) => {
             lobby.gameStarted = false;
             console.log("[LOBBY] Lobby reset due to disconnect during game");
         } else {
-            // Game hasn't started yet - just update lobby
+            if (disconnectedPlayer.slot === "P1" && lobby.players.length > 0) {
+                const remainingPlayer = lobby.players[0];
+                remainingPlayer.slot = "P1";
+                console.log(`[LOBBY] Promoted ${remainingPlayer.name} to P1`);
+                
+                // Notify the promoted player
+                io.to(remainingPlayer.id).emit("slotChanged", { newSlot: "P1" });
+            }
+            
+            // Broadcast updated lobby
             const lobbyData = lobby.players.map(p => ({ slot: p.slot, name: p.name, character: p.character }));
             io.emit("lobbyUpdate", lobbyData);
             console.log("[LOBBY] Updated after disconnect");
