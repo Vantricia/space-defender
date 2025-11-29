@@ -845,6 +845,23 @@ function receiveGameState(state) {
     gameState.bullets = state.bullets.map(b => createBullet(b.ownerSlot, b.x, b.y));
 }
 
+// Function to reset game state (call before starting new game)
+function resetGameState() {
+    console.log("[GAME] Resetting game state");
+    
+    // Stop background music if playing
+    stopBackgroundMusic();
+    
+    // Reset game state
+    gameState = null;
+    cheatMode = { P1: false, P2: false };
+    
+    console.log("[GAME] Game state reset complete");
+}
+
+// Make it available globally
+window.resetGameState = resetGameState;
+
 // Show game over screen
 function showGameOverScreen(summary) {
     console.log("Showing game over screen:", summary);

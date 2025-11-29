@@ -9,7 +9,7 @@ const asteroidSheet = new Image();
 asteroidSheet.src = 'effects/asteroids.png';
 
 const asteroidCrashSound = new Audio('effects/asteroid_crash.wav');
-asteroidCrashSound.volume = 0.5;
+asteroidCrashSound.volume = 0.3;
 
 function playAsteroidCrashSound() {
     asteroidCrashSound.currentTime = 0;
