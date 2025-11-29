@@ -158,10 +158,16 @@ socket.on("autoLogin", (data) => {
 
 // Modal button handlers
 showLoginBtn.addEventListener('click', () => {
+    // Clear login form fields
+    loginUsername.value = "";
+    loginPassword.value = "";
     showModal("login-modal");
 });
 
 showRegisterBtn.addEventListener('click', () => {
+    // Clear register form fields
+    registerUsername.value = "";
+    registerPassword.value = "";
     showModal("register-modal");
 });
 
