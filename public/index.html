@@ -547,14 +547,17 @@
             transform: scale(1.05);
         }
 
-        #main-menu-btn {
-            background: linear-gradient(135deg, #888 0%, #666 100%);
-            color: #ffffff;
+        #gameover-logout-btn {
+            border: 2px solid #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+            color: #ff4444;
+            cursor: pointer;
+            transition: all 0.3s ease;
         }
 
-        #main-menu-btn:hover {
-            background: linear-gradient(135deg, #aaa 0%, #888 100%);
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+        #gameover-logout-btn:hover {
+            background: rgba(255, 68, 68, 0.3);
+            box-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
             transform: scale(1.05);
         }
 
@@ -962,7 +965,7 @@
 
         <div class="button-group">
             <button id="play-again-btn">Play Again</button>
-            <button id="main-menu-btn">Main Menu</button>
+            <button id="gameover-logout-btn">Log Out</button>
         </div>
     </div>
 

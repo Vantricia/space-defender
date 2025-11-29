@@ -130,7 +130,7 @@ const p2NameSpan = document.getElementById("p2-name");
 const p1Slot = document.getElementById("p1-slot");
 const p2Slot = document.getElementById("p2-slot");
 const playAgainBtn = document.getElementById("play-again-btn");
-const mainMenuBtn = document.getElementById("main-menu-btn");
+const gameOverLogoutBtn = document.getElementById("gameover-logout-btn");
 
 // Handle auto-login from server session (for page refresh)
 socket.on("autoLogin", (data) => {
@@ -606,25 +606,54 @@ playAgainBtn.addEventListener("click", () => {
 });
 
 // Handle "Main Menu" button
-mainMenuBtn.addEventListener("click", () => {
-    // Return to auth screen
+gameOverLogoutBtn.addEventListener("click", () => {
+
+    console.log("[AUTH] Logging out from game over screen");
+    
+    // Tell server to clear THIS user's session only
+    socket.emit("logout");
+    
+    // Stop background music if still playing
+    if (typeof stopBackgroundMusic === 'function') {
+        stopBackgroundMusic();
+    }
+    
+    // Reset game state
+    if (typeof window.resetGameState === 'function') {
+        window.resetGameState();
+    }
+    
+    // Clear all local state for THIS user
+    isLoggedIn = false;
     loggedInUsername = null;
     myName = null;
     mySlot = null;
-    isLoggedIn = false;
     
-    // Update UI
-    welcomeMessage.style.display = "none";
-    logoutBtn.style.display = "none";
-    authButtonsSection.style.display = "flex";
-    lobbyContainer.style.display = "none";
+    // Reset lobby UI
+    resetLobbyUI();
+    
+    // Reset character selection
+    if (typeof resetCharacterSelection === 'function') {
+        resetCharacterSelection();
+    }
+    
+    // Update UI - show auth buttons, hide logged-in elements
+    if (welcomeMessage) welcomeMessage.style.display = "none";
+    if (logoutBtn) logoutBtn.style.display = "none";
+    if (authButtonsSection) authButtonsSection.style.display = "flex";
+    if (lobbyContainer) lobbyContainer.style.display = "none";
+    
+    // Clear all form fields
+    if (loginUsername) loginUsername.value = "";
+    if (loginPassword) loginPassword.value = "";
+    if (registerUsername) registerUsername.value = "";
+    if (registerPassword) registerPassword.value = "";
+    if (playerNameInput) playerNameInput.value = "";
+    
+    // Return to front page (authentication screen)
     showScreen("front-page");
     
-    // Clear forms
-    loginUsername.value = '';
-    loginPassword.value = '';
-    registerUsername.value = '';
-    registerPassword.value = '';
+    console.log("[AUTH] Logged out successfully from game over screen");
 });
 
 // Export socket for use in game.js
