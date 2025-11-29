@@ -826,7 +826,7 @@
     <!-- Front Page Screen (Lobby) -->
     <div id="front-page" class="screen active">
         <h1>SPACE DEFENDERS</h1>
-        <div id="welcome-section">
+        <div id="welcome-section" style="visibility: hidden;">
             <p class="subtitle" id="welcome-message" style="display: none;">Welcome, <span id="logged-in-username" style="color: #00ff88;"></span>!</p>
             <button id="logout-btn" class="logout-btn" style="display: none;">Logout</button>
             <div class="auth-buttons" id="auth-buttons-section">
@@ -891,6 +891,12 @@
                         <li><strong>Health:</strong> 100 HP, –25 per asteroid hit</li>
                         <li><strong>Game Over:</strong> 0 HP = Elimination</li>
                         <li><strong>Scoring:</strong> Gems +10 pts, Destroyed asteroids +5 pts</li>
+                    </ul>
+                    <h4 style="color: #00ff88; margin: 15px 0 10px 0;">Power-Ups</h4>
+                    <ul>
+                        <li><strong>🔫 Triple Shot:</strong> Fire 3 bullets at once (20s)</li>
+                        <li><strong>🔧 Shield:</strong> Immune to asteroid damage (20s)</li>
+                        <li><strong>⚡ Speed Boost:</strong> Move 1.5x faster (20s)</li>
                     </ul>
                 </div>
                 <div>
@@ -974,6 +980,7 @@
     <script src="character.js"></script>
     <script src="asteroid.js"></script>
     <script src="gem.js"></script>
+    <script src="powerup.js"></script>
     <script src="client.js"></script>
     <script src="game.js"></script>
 </body>
