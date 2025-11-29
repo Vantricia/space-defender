@@ -90,21 +90,10 @@ io.on("connection", (socket) => {
 
     // AUTO-LOGIN IF SESSION EXISTS - but only if not logged in elsewhere
     if (session.username) {
-        // Check if user is already logged in on another device
-        if (activeSessions.has(session.username)) {
-            console.log(`[SESSION] ${session.username} tried to auto-login but already active elsewhere`);
-            // Clear the session since they're logged in elsewhere
-            session.username = null;
-            session.save();
-            // Don't emit autoLogin - user must login manually
-        } else {
-            // User is not logged in elsewhere, allow auto-login
-            activeSessions.set(session.username, socket.id);
-            socket.emit("autoLogin", {
-                username: session.username,
-                stats: getUserStats(session.username) || { gamesPlayed: 0, wins: 0, totalScore: 0 }
-            });
-        }
+        socket.emit("autoLogin", {
+            username: session.username,
+            stats: getUserStats(session.username) || { gamesPlayed: 0, wins: 0, totalScore: 0 }
+        });
     }
 
     console.log(`[INFO] New connection: ${socket.id}`);
