@@ -322,6 +322,29 @@ io.on("connection", (socket) => {
         socket.broadcast.emit("asteroidCrash", data);
     });
 
+    // Handle play again request
+    socket.on("playAgain", () => {
+        const session = socket.request.session;
+        console.log(`[LOBBY] Play again request from ${session.username || socket.id}`);
+        
+        // Remove this player from lobby if they're in it
+        const playerIndex = lobby.players.findIndex(p => p.id === socket.id);
+        if (playerIndex !== -1) {
+            lobby.players.splice(playerIndex, 1);
+        }
+        
+        // Reset game started flag if no players left
+        if (lobby.players.length === 0) {
+            lobby.gameStarted = false;
+        }
+        
+        // Send updated lobby state to all clients
+        const lobbyData = lobby.players.map(p => ({ slot: p.slot, name: p.name, character: p.character }));
+        io.emit("lobbyUpdate", lobbyData);
+        
+        console.log(`[LOBBY] After playAgain: ${lobby.players.length} players in lobby`);
+    });
+
     // Handle game over
     socket.on("gameOver", (data) => {
         console.log("[GAME] Game over:", data);
