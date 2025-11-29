@@ -80,17 +80,31 @@ const lobby = {
     gameStarted: false
 };
 
+// Track active user sessions: { username: socketId }
+const activeSessions = new Map();
+
 // Socket.io connection handling
 io.on("connection", (socket) => {
     const session = socket.request.session;
     console.log(`[CONNECT] ${socket.id} | User: ${session.username || 'Guest'}`);
 
-    // AUTO-LOGIN IF SESSION EXISTS
+    // AUTO-LOGIN IF SESSION EXISTS - but only if not logged in elsewhere
     if (session.username) {
-        socket.emit("autoLogin", {
-            username: session.username,
-            stats: getUserStats(session.username) || { gamesPlayed: 0, wins: 0, totalScore: 0 }
-        });
+        // Check if user is already logged in on another device
+        if (activeSessions.has(session.username)) {
+            console.log(`[SESSION] ${session.username} tried to auto-login but already active elsewhere`);
+            // Clear the session since they're logged in elsewhere
+            session.username = null;
+            session.save();
+            // Don't emit autoLogin - user must login manually
+        } else {
+            // User is not logged in elsewhere, allow auto-login
+            activeSessions.set(session.username, socket.id);
+            socket.emit("autoLogin", {
+                username: session.username,
+                stats: getUserStats(session.username) || { gamesPlayed: 0, wins: 0, totalScore: 0 }
+            });
+        }
     }
 
     console.log(`[INFO] New connection: ${socket.id}`);
@@ -166,6 +180,12 @@ io.on("connection", (socket) => {
             return;
         }
 
+        // Check if user is already logged in
+        if (activeSessions.has(user.username)) {
+            socket.emit("loginError", { message: "Account is already logged in on another device" });
+            return;
+        }
+
         // SAVE USERNAME TO SESSION - THIS IS THE KEY PART
         const session = socket.request.session;
         session.username = user.username;
@@ -174,6 +194,9 @@ io.on("connection", (socket) => {
                 console.error("[SESSION] Save error:", err);
             }
         });
+
+        // Add to active sessions
+        activeSessions.set(user.username, socket.id);
 
         console.log(`[DB] User logged in: ${user.username}`);
         socket.emit("loginSuccess", { 
@@ -189,6 +212,10 @@ io.on("connection", (socket) => {
     // Handle logout
     socket.on("logout", () => {
         console.log(`[AUTH] User logged out: ${session.username}`);
+        // Remove from active sessions
+        if (session.username) {
+            activeSessions.delete(session.username);
+        }
         session.username = null;
         session.save();
     });
@@ -381,6 +408,12 @@ io.on("connection", (socket) => {
     // Handle player disconnect
     socket.on("disconnect", () => {
         console.log(`[INFO] Disconnect: ${socket.id}`);
+
+        // Remove from active sessions if logged in
+        if (session.username) {
+            activeSessions.delete(session.username);
+            console.log(`[SESSION] Removed ${session.username} from active sessions`);
+        }
 
         // Find the disconnected player
         const playerIndex = lobby.players.findIndex(p => p.id === socket.id);

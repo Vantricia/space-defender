@@ -102,7 +102,13 @@ function initGame(serverData, mySlot) {
         lastSpawnGem: 0,
         running: false, // Don't start until instructions are gone
         pressed: {},
-        gameStartTime: serverData.duration
+        gameStartTime: serverData.duration,
+        // Difficulty scaling
+        difficultyLevel: 1,
+        lastDifficultyIncrease: serverData.duration,
+        maxAsteroids: 6,
+        asteroidSpawnInterval: 1.5,
+        asteroidSpeedMultiplier: 1.0
     };
     
     // Expose gameState to window for client.js access
@@ -242,6 +248,9 @@ function update(dt) {
         if (gameState.timeRemaining < 0) {
             gameState.timeRemaining = 0;
         }
+
+        // Check for difficulty increase every 30 seconds
+        checkDifficultyIncrease();
         
         // Check if time ran out
         if (gameState.timeRemaining === 0 && gameState.players.P1.alive && gameState.players.P2.alive) {
@@ -272,6 +281,27 @@ function update(dt) {
     }
     
     updateHUD();
+}
+
+// Check and increase difficulty every 30 seconds
+function checkDifficultyIncrease() {
+    const timeElapsed = gameState.gameStartTime - gameState.timeRemaining;
+    const expectedLevel = Math.floor(timeElapsed / 30) + 1;
+    
+    if (expectedLevel > gameState.difficultyLevel) {
+        gameState.difficultyLevel = expectedLevel;
+        
+        // Increase max asteroids by 2 each level (6 -> 8 -> 10 -> 12 -> 14 -> 16)
+        gameState.maxAsteroids = 6 + (gameState.difficultyLevel - 1) * 2;
+        
+        // Decrease spawn interval (faster spawning): 1.5 -> 1.3 -> 1.1 -> 0.9 -> 0.7 -> 0.5
+        gameState.asteroidSpawnInterval = Math.max(0.5, 1.5 - (gameState.difficultyLevel - 1) * 0.2);
+        
+        // Increase asteroid speed: 1.0 -> 1.2 -> 1.4 -> 1.6 -> 1.8 -> 2.0
+        gameState.asteroidSpeedMultiplier = 1.0 + (gameState.difficultyLevel - 1) * 0.2;
+        
+        console.log(`[DIFFICULTY] Level ${gameState.difficultyLevel}: Max asteroids=${gameState.maxAsteroids}, Spawn interval=${gameState.asteroidSpawnInterval.toFixed(1)}s, Speed multiplier=${gameState.asteroidSpeedMultiplier.toFixed(1)}x`);
+    }
 }
 
 // Update player positions based on keyboard input
@@ -332,10 +362,14 @@ function updatePlayers(dt) {
 function spawnAsteroids(dt) {
     gameState.lastSpawnAsteroid += dt;
     
-    // Spawn every 1.5 seconds if under max count
-    if (gameState.lastSpawnAsteroid >= 1.5 && gameState.asteroids.length < 6) {
+    /// Use dynamic spawn interval and max count
+    if (gameState.lastSpawnAsteroid >= gameState.asteroidSpawnInterval && gameState.asteroids.length < gameState.maxAsteroids) {
         gameState.lastSpawnAsteroid = 0;
-        gameState.asteroids.push(Asteroid(ctx, canvas.width));
+        
+        // Create asteroid with speed multiplier
+        const asteroid = Asteroid(ctx, canvas.width);
+        asteroid.applySpeedMultiplier(gameState.asteroidSpeedMultiplier);
+        gameState.asteroids.push(asteroid);
     }
 }
 
@@ -772,6 +806,10 @@ function broadcastGameState() {
     // Serialize game state for network transfer
     const state = {
         timeRemaining: gameState.timeRemaining,
+        difficultyLevel: gameState.difficultyLevel,
+        maxAsteroids: gameState.maxAsteroids,
+        asteroidSpawnInterval: gameState.asteroidSpawnInterval,
+        asteroidSpeedMultiplier: gameState.asteroidSpeedMultiplier,
         players: {
             P1: {
                 x: gameState.players.P1.x,
@@ -811,6 +849,12 @@ function receiveGameState(state) {
     
     // Update time
     gameState.timeRemaining = state.timeRemaining;
+    
+    // Update difficulty settings
+    gameState.difficultyLevel = state.difficultyLevel;
+    gameState.maxAsteroids = state.maxAsteroids;
+    gameState.asteroidSpawnInterval = state.asteroidSpawnInterval;
+    gameState.asteroidSpeedMultiplier = state.asteroidSpeedMultiplier;
     
     // Update P1 position and stats
     gameState.players.P1.x = state.players.P1.x;
