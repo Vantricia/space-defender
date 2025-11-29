@@ -33,15 +33,32 @@ const Asteroid = function(ctx, canvasWidth) {
     const spriteCol = spriteIndex % ASTEROID_SHEET_COLS;
     const spriteRow = Math.floor(spriteIndex / ASTEROID_SHEET_COLS);
 
+    // Base velocities (stored for speed multiplier)
+    const baseVx = (Math.random() - 0.5) * 50;
+    const baseVy = Math.random() * 30 + 50;
+
     // Random spawn position and velocity
     const asteroid = {
         x: Math.random() * (canvasWidth - 80) + 40,
         y: -30,
-        vx: (Math.random() - 0.5) * 50, // Horizontal drift
-        vy: Math.random() * 30 + 50,     // Downward speed
+        baseVx: baseVx,
+        baseVy: baseVy,
+        vx: baseVx, // Horizontal drift
+        vy: baseVy,     // Downward speed
         radius: 20,
         spriteCol: spriteCol,
-        spriteRow: spriteRow
+        spriteRow: spriteRow,
+        speedMultiplier: 1.0
+    };
+
+    /**
+     * Apply speed multiplier for difficulty scaling
+     * @param {number} multiplier - Speed multiplier (1.0 = normal)
+     */
+    asteroid.applySpeedMultiplier = function(multiplier) {
+        this.speedMultiplier = multiplier;
+        this.vx = this.baseVx * multiplier;
+        this.vy = this.baseVy * multiplier;
     };
 
     /**
@@ -123,11 +140,14 @@ const Asteroid = function(ctx, canvasWidth) {
         return {
             x: this.x,
             y: this.y,
+            baseVx: this.baseVx,
+            baseVy: this.baseVy,
             vx: this.vx,
             vy: this.vy,
             radius: this.radius,
             spriteCol: this.spriteCol,
-            spriteRow: this.spriteRow
+            spriteRow: this.spriteRow,
+            speedMultiplier: this.speedMultiplier
         };
     };
 
@@ -137,11 +157,14 @@ const Asteroid = function(ctx, canvasWidth) {
     asteroid.deserialize = function(data) {
         this.x = data.x;
         this.y = data.y;
+        this.baseVx = data.baseVx || data.vx;
+        this.baseVy = data.baseVy || data.vy;
         this.vx = data.vx;
         this.vy = data.vy;
         this.radius = data.radius;
         this.spriteCol = data.spriteCol;
         this.spriteRow = data.spriteRow;
+        this.speedMultiplier = data.speedMultiplier || 1.0;
     };
 
     return asteroid;
