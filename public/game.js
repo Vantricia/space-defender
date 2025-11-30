@@ -3,6 +3,8 @@ let canvas, ctx;
 let gameState = null;
 let lastTime = 0;
 let cheatMode = { P1: false, P2: false };
+let controlsInitialized = false;
+let socketListenersInitialized = false;
 
 // Load bullet image
 const bulletImage = new Image();
@@ -79,6 +81,9 @@ function createBullet(ownerSlot, x, y) {
 // Initialize game when server sends gameStart
 function initGame(serverData, mySlot) {
     console.log("Initializing game for", mySlot, serverData);
+
+    // Reset cheat mode for new game
+    cheatMode = { P1: false, P2: false };
     
     // Get canvas and context
     canvas = document.getElementById("game-canvas");
@@ -120,8 +125,23 @@ function initGame(serverData, mySlot) {
     window.gameState = gameState;
     
     // Set up keyboard controls
-    setupControls();
-    
+    if (!controlsInitialized) {
+        setupControls();
+        controlsInitialized = true;
+    }
+
+    // Set up socket listeners (only once)
+    if (!socketListenersInitialized) {
+        setupSocketListeners(mySlot);
+        socketListenersInitialized = true;
+    }
+
+    // Start game loop
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+}
+// Set up socket listeners (called once)
+function setupSocketListeners(mySlot) {
     // Listen for player input from other player
     window.gameSocket.on("playerInput", (data) => {
         if (gameState && data.slot !== gameState.mySlot) {
@@ -134,24 +154,26 @@ function initGame(serverData, mySlot) {
     });
     
     // Listen for state updates from P1 (if we're P2)
-    if (mySlot === "P2") {
-        window.gameSocket.on("stateUpdate", receiveGameState);
-    }
-    
-    // Start game loop
-    lastTime = performance.now();
-    requestAnimationFrame(gameLoop);
-
-        window.gameSocket.on("shoot", (data) => {
-        if (!gameState || !gameState.running || gameState.mySlot !== "P1") return;
-        const player = gameState.players[data.ownerSlot];
-        if (!player || !player.alive) return;
-        
-        const bullet = createBullet(data.ownerSlot, data.x, data.y);
-        if (data.ownerSlot !== gameState.mySlot) {
-            playBulletSound();
+    window.gameSocket.on("stateUpdate", (state) => {
+        if (gameState && gameState.mySlot === "P2") {
+            receiveGameState(state);
         }
-        gameState.bullets.push(bullet);
+    });
+    
+    window.gameSocket.on("shoot", (data) => {
+        if (!gameState || !gameState.running) return;
+        
+        // Only P1 handles bullet creation for collision detection
+        if (gameState.mySlot === "P1") {
+            const player = gameState.players[data.ownerSlot];
+            if (!player || !player.alive) return;
+            
+            const bullet = createBullet(data.ownerSlot, data.x, data.y);
+            if (data.ownerSlot !== gameState.mySlot) {
+                playBulletSound();
+            }
+            gameState.bullets.push(bullet);
+        }
     });
 
     // Listen for cheat mode (for P2)
@@ -185,6 +207,7 @@ function initGame(serverData, mySlot) {
 function setupControls() {
     // Track pressed keys
     document.addEventListener("keydown", (e) => {
+        if (!gameState) return;
         gameState.pressed[e.code] = true;
         
         // Toggle cheat mode on Ctrl
@@ -214,6 +237,7 @@ function setupControls() {
     });
     
     document.addEventListener("keyup", (e) => {
+        if (!gameState) return;
         gameState.pressed[e.code] = false;
     });
 }
